@@ -268,6 +268,12 @@ pub async fn comments(
         .await
         .change_context_lazy(|| AppError::Unknown)?;
 
+    if let Some(top) = reply_list.upper.and_then(|upper| upper.top) {
+        println!("top rpid={}  uname={}", top.rpid, top.member.uname);
+        println!("{}", top.content.message);
+        println!();
+    }
+
     for reply in reply_list.replies.unwrap_or_default() {
         println!("rpid={}  uname={}", reply.rpid, reply.member.uname);
         println!("{}", reply.content.message);
@@ -295,6 +301,38 @@ pub async fn reply(
     let bilibili = login_by_cookies(user_cookie, proxy).await?;
     let ret = bilibili
         .reply_comment(&vid, rpid, &message, proxy)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&ret).change_context_lazy(|| AppError::Unknown)?
+    );
+    Ok(())
+}
+
+/// 置顶或取消置顶视频评论。
+///
+/// 输入：`user_cookie` 登录文件、`vid` 稿件号、`rpid` 评论 ID、`unpin` 是否取消置顶、`execute` 是否真正提交、`proxy` 可选代理。
+/// 返回：成功时打印接口响应；未加 `--execute` 时只打印将要执行的操作。
+pub async fn top_reply(
+    user_cookie: PathBuf,
+    vid: Vid,
+    rpid: u64,
+    unpin: bool,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let action: u8 = if unpin { 0 } else { 1 };
+    let action_desc = if unpin { "unpin" } else { "pin" };
+    if !execute {
+        println!("dry-run: top-reply {vid} rpid={rpid} action={action} ({action_desc})");
+        println!("use --execute to send");
+        return Ok(());
+    }
+
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let ret = bilibili
+        .top_reply_comment(&vid, rpid, action, proxy)
         .await
         .change_context_lazy(|| AppError::Unknown)?;
     println!(

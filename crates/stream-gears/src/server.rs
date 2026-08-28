@@ -4,7 +4,8 @@ use biliup_cli::downloader::generate_json;
 use biliup_cli::server::config::Config;
 use biliup_cli::server::errors::AppResult;
 use biliup_cli::uploader::{
-    append, comments, list, login, renew, reply, show, upload_by_command, upload_by_config,
+    append, comments, list, login, renew, reply, show, top_reply, upload_by_command,
+    upload_by_config,
 };
 use clap::Parser;
 use pyo3::prelude::PyAnyMethods;
@@ -268,6 +269,22 @@ pub(crate) async fn _main(args: &[String]) -> AppResult<()> {
                 vid,
                 rpid,
                 message,
+                execute,
+                cli.proxy.as_deref(),
+            )
+            .await?
+        }
+        Commands::TopReply {
+            vid,
+            rpid,
+            unpin,
+            execute,
+        } => {
+            top_reply(
+                cli.user_cookie,
+                vid,
+                rpid,
+                unpin,
                 execute,
                 cli.proxy.as_deref(),
             )

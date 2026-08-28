@@ -4,7 +4,8 @@ use biliup::uploader::util::SubmitOption;
 use biliup_cli::cli::{Cli, Commands, expand_path};
 use biliup_cli::downloader::{download, generate_json};
 use biliup_cli::uploader::{
-    append, comments, list, login, renew, reply, show, upload_by_command, upload_by_config,
+    append, comments, list, login, renew, reply, show, top_reply, upload_by_command,
+    upload_by_config,
 };
 
 use clap::Parser;
@@ -135,6 +136,22 @@ async fn main() -> AppResult<()> {
                 vid,
                 rpid,
                 message,
+                execute,
+                cli.proxy.as_deref(),
+            )
+            .await?
+        }
+        Commands::TopReply {
+            vid,
+            rpid,
+            unpin,
+            execute,
+        } => {
+            top_reply(
+                user_cookie,
+                vid,
+                rpid,
+                unpin,
                 execute,
                 cli.proxy.as_deref(),
             )

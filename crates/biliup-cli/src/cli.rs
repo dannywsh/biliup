@@ -135,6 +135,22 @@ pub enum Commands {
         #[arg(long)]
         execute: bool,
     },
+    /// 置顶或取消置顶视频评论，默认只打印将要执行的操作
+    TopReply {
+        /// vid为稿件 av 或 bv 号
+        vid: Vid,
+
+        /// 评论 rpid
+        rpid: u64,
+
+        /// 取消置顶；默认置顶
+        #[arg(long)]
+        unpin: bool,
+
+        /// 实际发送置顶请求
+        #[arg(long)]
+        execute: bool,
+    },
     /// 输出flv元数据
     DumpFlv {
         #[arg()]
@@ -253,5 +269,43 @@ mod tests {
         .unwrap();
 
         assert_eq!(cli.user_cookie, Path::new("/tmp/private-account.json"));
+    }
+
+    #[test]
+    fn top_reply_defaults_to_dry_run_pin() {
+        let cli = Cli::try_parse_from(["biliup", "top-reply", "BV1test", "1"]).unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::TopReply {
+                rpid: 1,
+                unpin: false,
+                execute: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn top_reply_accepts_execute_and_unpin() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "top-reply",
+            "BV1test",
+            "1",
+            "--unpin",
+            "--execute",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::TopReply {
+                rpid: 1,
+                unpin: true,
+                execute: true,
+                ..
+            }
+        ));
     }
 }

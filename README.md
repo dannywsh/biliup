@@ -64,6 +64,17 @@ biliup upload \
 
 该参数会按创作中心网页规则生成 `adorder_id`，并提交 `adorder_type: 2`。它只能与 `--submit web` 一起使用；APP 和必剪投稿接口会拒绝该参数。
 
+### 评论与置顶
+
+`reply` / `top-reply` 默认 dry-run，必须加 `--execute` 才会真正提交。`rpid=0` 表示发表顶级评论。
+
+```shell
+biliup comments BV1xxx
+biliup reply BV1xxx 0 "评论内容" --execute
+biliup top-reply BV1xxx <rpid> --execute
+biliup top-reply BV1xxx <rpid> --unpin --execute
+```
+
 ```shell
 Upload video to bilibili.
 
@@ -75,9 +86,10 @@ Commands:
   upload    上传视频
   append    是否要对某稿件追加视频
   show      打印视频详情
-  comments  查看视频评论
-  reply     回复视频评论，默认只打印将要回复的内容
-  dump-flv  输出flv元数据
+  comments   查看视频评论
+  reply      回复视频评论，默认只打印将要回复的内容
+  top-reply  置顶或取消置顶视频评论，默认只打印将要执行的操作
+  dump-flv   输出flv元数据
   download  下载视频
   server    启动web服务，默认端口19159
   list      列出所有已上传的视频

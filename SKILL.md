@@ -1,13 +1,15 @@
 ---
 name: biliup
-description: Use the biliup command-line tool to start the WebUI server, run recording tasks from config files, inspect help, and operate common upload/download commands.
+description: Use the biliup command-line tool to start the WebUI server, run recording tasks from config files, inspect help, and operate upload/download/comment commands (upload, comments, reply, top-reply).
 ---
 
 # biliup
 
 Use this skill when the user wants to install or operate the `biliup` command-line tool.
 
-`biliup` can start the WebUI server, run recording tasks from config files, log in, upload videos, append videos, inspect video information, download videos, and list uploaded videos.
+`biliup` can start the WebUI server, run recording tasks from config files, log in, upload videos, append videos, inspect video information, download videos, list uploaded videos, list comments, reply to comments, and pin or unpin comments.
+
+Always inspect `biliup <command> --help` (or `-h`) before generating a command. Prefer the local customized binary when this repository is the workspace.
 
 ## Install flow
 
@@ -80,7 +82,7 @@ try {
   Expand-Archive $Zip -DestinationPath $Tmp.FullName -Force
   New-Item -ItemType Directory -Force $InstallDir | Out-Null
   $Exe = Get-ChildItem $Tmp.FullName -Recurse -Filter biliup.exe | Select-Object -First 1
-  if (-not $Exe) { throw "biliup.exe not found in release archive" }
+  if (-not $Exe) { throw "biliup.exe not found in the release archive" }
   Copy-Item $Exe.FullName (Join-Path $InstallDir "biliup.exe") -Force
   & (Join-Path $InstallDir "biliup.exe") --help
 } finally {
@@ -92,55 +94,95 @@ If the target directory is not on `PATH`, tell the user to run `biliup` by its f
 
 ### Windows winget
 
-Use this path when the user is on Windows and wants to install from the command line:
-
 ```bash
 winget install biliup
-```
-
-Then verify:
-
-```bash
 biliup --help
 ```
 
 ### Linux or macOS uv
 
-Use this path when the user is on Linux or macOS and has `uv` available:
-
 ```bash
 uv tool install biliup
-```
-
-Then verify:
-
-```bash
 biliup --help
 ```
 
+### Local customized source
+
+This repository (fork `dannywsh/biliup`) adds Web v3 `--post-upload-goods` and comment commands. Build and install it when the user wants those features:
+
+```bash
+cargo build --release -p biliup-cli --bin biliup
+install -m 755 target/release/biliup "$HOME/.local/bin/biliup"
+```
+
+If the workspace root is the parent of this repo, `cd` into `biliup` first. Verify:
+
+```bash
+biliup --help
+biliup upload --help
+biliup top-reply --help
+```
+
+`biliup --help` must list `top-reply`. `biliup upload --help` must list `--post-upload-goods`.
+
 ## Operation flow
 
-When the user asks to start the WebUI server with authentication, use:
+### Web v3 视频带货投稿
+
+For “商业推广 → 视频带货 → 投稿后再添加商品”, use `--submit web --post-upload-goods`. The flag generates the same random `adorder_id` range as the creator-center page and submits `adorder_type: 2`:
+
+```bash
+biliup upload \
+  --submit web \
+  --post-upload-goods \
+  --cover /absolute/path/cover.jpg \
+  --title "视频标题" \
+  --tid 65 \
+  --tag "标签1,标签2" \
+  /absolute/path/video.mp4
+```
+
+Use this flag only with `--submit web`; APP and Bcut submission reject it. During review, `biliup show` may report `adorder_id: 0` and `has_porder: 0` even when the declaration was saved. For definitive verification, inspect the creator-center edit-detail response and require a nonzero `archive.adorder_id` plus `archive.new_adorder_info.adorder_type == 2`.
+
+### 评论、回复、置顶
+
+Cookie file defaults to `cookies.json` in the current working directory. Override with `-u/--user-cookie`.
+
+List comments. Pinned comments print first as `top rpid=...`:
+
+```bash
+biliup comments BV1xxx
+biliup comments BV1xxx --sort 2 --pn 1 --ps 20
+```
+
+Reply. Default is dry-run; add `--execute` to send. `rpid=0` posts a top-level comment; any other `rpid` replies under that comment:
+
+```bash
+biliup reply --help
+biliup reply BV1xxx 0 "评论内容"
+biliup reply BV1xxx 0 "评论内容" --execute
+```
+
+Pin or unpin a comment. Default is dry-run pin; add `--execute` to send, `--unpin` to cancel:
+
+```bash
+biliup top-reply --help
+biliup top-reply BV1xxx <rpid>
+biliup top-reply BV1xxx <rpid> --execute
+biliup top-reply BV1xxx <rpid> --unpin --execute
+```
+
+After a successful pin, `biliup comments <vid>` should show `top rpid=<rpid>`. Newly posted comments may not appear immediately because of audit or cache.
+
+### WebUI server
 
 ```bash
 biliup server --auth
-```
-
-When the user provides an address or port, include them explicitly:
-
-```bash
 biliup server --bind 0.0.0.0 --port 19159 --auth
-```
-
-When the user asks to run from a biliup 1.0.7 style config file, use:
-
-```bash
 biliup server --config config.toml
 ```
 
-Replace `config.toml` with the user's config file path.
-
-When the user wants to run the server in the background on Linux or macOS, use:
+Background on Linux or macOS:
 
 ```bash
 nohup biliup server --auth &
@@ -148,29 +190,21 @@ nohup biliup server --auth &
 
 ## Help flow
 
-When the user asks what commands are available, show:
+When the user asks what commands are available:
 
 ```bash
 biliup --help
 ```
 
-When the user asks about server options, show:
-
-```bash
-biliup server --help
-```
-
-When the user asks about a specific command, use:
+When the user asks about a specific command:
 
 ```bash
 biliup <command> --help
 ```
 
-Replace `<command>` with the requested subcommand.
+`-h` is equivalent to `--help`.
 
 ## Commands
-
-The CLI includes these subcommands:
 
 ```text
 login
@@ -180,6 +214,7 @@ append
 show
 comments
 reply
+top-reply
 dump-flv
 download
 server

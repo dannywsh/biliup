@@ -443,11 +443,21 @@ pub struct ReplyPage {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct ReplyUpper {
+    #[serde(default)]
+    pub mid: Option<u64>,
+    #[serde(default)]
+    pub top: Option<Reply>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct ReplyList {
     #[serde(default)]
     pub page: ReplyPage,
     #[serde(default)]
     pub replies: Option<Vec<Reply>>,
+    #[serde(default)]
+    pub upper: Option<ReplyUpper>,
 }
 
 #[derive(Clone, Debug)]
@@ -843,6 +853,43 @@ impl BiliBili {
                 data: Some(data),
                 ..
             } => Ok(data),
+            res => Err(Kind::Custom(format!("{res:?}"))),
+        }
+    }
+
+    /// 置顶或取消置顶视频评论。
+    ///
+    /// 输入：
+    /// - `vid`：稿件 av/bv
+    /// - `rpid`：评论 ID
+    /// - `action`：`1` 置顶，`0` 取消置顶
+    ///
+    /// 返回：接口 `data`；成功且 `data` 为空时返回 `null`。
+    pub async fn top_reply_comment(
+        &self,
+        vid: &Vid,
+        rpid: u64,
+        action: u8,
+        _proxy: Option<&str>,
+    ) -> Result<Value> {
+        let oid = self.aid_from_vid(vid).await?;
+        let res: ResponseData = self
+            .client
+            .post("https://api.bilibili.com/x/v2/reply/top")
+            .form(&[
+                ("type", "1".to_string()),
+                ("oid", oid.to_string()),
+                ("rpid", rpid.to_string()),
+                ("action", action.to_string()),
+                ("csrf", self.get_csrf()?.to_string()),
+            ])
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        match res {
+            ResponseData { code: 0, data, .. } => Ok(data.unwrap_or(Value::Null)),
             res => Err(Kind::Custom(format!("{res:?}"))),
         }
     }
