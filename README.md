@@ -46,6 +46,24 @@ B 站命令行投稿工具，支持**短信登录**、**账号密码登录**、*
 - 获取命令帮助 `biliup --help` 
 
 **文档地址**：<https://biliup.github.io/biliup-rs>
+
+### Web v3 视频带货投稿
+
+`--submit web` 使用创作中心 Web v3 投稿接口。需要勾选“商业推广 → 视频带货 → 投稿后再添加商品”时，增加 `--post-upload-goods`：
+
+```shell
+biliup upload \
+  --submit web \
+  --post-upload-goods \
+  --cover /absolute/path/cover.jpg \
+  --title "视频标题" \
+  --tid 65 \
+  --tag "标签1,标签2" \
+  /absolute/path/video.mp4
+```
+
+该参数会按创作中心网页规则生成 `adorder_id`，并提交 `adorder_type: 2`。它只能与 `--submit web` 一起使用；APP 和必剪投稿接口会拒绝该参数。
+
 ```shell
 Upload video to bilibili.
 

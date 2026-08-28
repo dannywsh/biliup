@@ -1,6 +1,7 @@
 use crate::ReqwestClientBuilderExt;
 use crate::error::{Kind, Result};
 use crate::uploader::credential::LoginInfo;
+use rand::Rng;
 use serde::ser::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -140,6 +141,12 @@ pub struct Studio {
     #[serde(default)]
     pub up_close_danmu: bool,
 
+    /// 投稿时声明“视频带货”，商品在投稿后添加；仅 Web v3 接口支持
+    #[cfg_attr(feature = "cli", clap(long))]
+    #[serde(default, skip_serializing)]
+    #[builder(default)]
+    pub post_upload_goods: bool,
+
     /// 自定义提交参数
     #[cfg_attr(feature = "cli", clap(long, value_parser = parse_extra_fields))]
     #[serde(flatten)]
@@ -152,6 +159,30 @@ fn parse_extra_fields(s: &str) -> std::result::Result<HashMap<String, Value>, St
 
 fn default_copyright() -> u8 {
     1
+}
+
+/// 构造 Web v3 投稿请求体。
+///
+/// 输入参数：`studio` 为投稿信息；`adorder_id` 为网页端规则生成的商业推广标识。
+/// 返回值：包含视频带货字段的 JSON 请求体；未开启视频带货时保持普通投稿结构。
+fn build_web_payload(studio: &Studio, adorder_id: u64) -> Result<Value> {
+    let mut payload = serde_json::to_value(studio)?;
+    if studio.post_upload_goods {
+        let object = payload
+            .as_object_mut()
+            .ok_or_else(|| Kind::Custom("Web 投稿参数必须是 JSON 对象".to_string()))?;
+        object.insert("adorder_id".to_string(), Value::from(adorder_id));
+        object.insert("adorder_type".to_string(), Value::from(2));
+    }
+    Ok(payload)
+}
+
+/// 生成与创作中心网页一致的 17 位范围随机商业推广标识。
+///
+/// 输入参数：无。
+/// 返回值：范围为 `[0, 10^17)` 的随机整数。
+fn generate_adorder_id() -> u64 {
+    rand::thread_rng().gen_range(0..100_000_000_000_000_000_u64)
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -438,6 +469,11 @@ impl BiliBili {
         studio: &Studio,
         proxy: Option<&str>,
     ) -> Result<ResponseData> {
+        if studio.post_upload_goods {
+            return Err(Kind::Custom(
+                "--post-upload-goods 仅支持 --submit web（Web v3 接口）".to_string(),
+            ));
+        }
         let payload = {
             let mut payload = json!({
                 "access_key": self.login_info.token_info.access_token,
@@ -488,6 +524,11 @@ impl BiliBili {
         studio: &Studio,
         proxy: Option<&str>,
     ) -> Result<ResponseData> {
+        if studio.post_upload_goods {
+            return Err(Kind::Custom(
+                "--post-upload-goods 仅支持 --submit web（Web v3 接口）".to_string(),
+            ));
+        }
         let payload = {
             let mut payload = json!({
                 "access_key": self.login_info.token_info.access_token,
@@ -552,13 +593,14 @@ impl BiliBili {
         let jar = reqwest::cookie::Jar::default();
         jar.add_cookie_str(&cookie, &url);
 
+        let payload = build_web_payload(studio, generate_adorder_id())?;
         let ret: ResponseData = reqwest::Client::proxy_builder(proxy)
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
             .cookie_provider(std::sync::Arc::new(jar))
             .timeout(Duration::new(60, 0))
             .build()?
             .post(url)
-            .json(studio)
+            .json(&payload)
             .send()
             .await?
             .json()
@@ -1006,7 +1048,8 @@ impl<T: Serialize> Display for ResponseData<T> {
 #[cfg(test)]
 mod archive_tests {
     use super::{
-        RawArchivePageMetadata, pagination_plan, parse_archive_page, validate_archive_page_metadata,
+        RawArchivePageMetadata, Studio, build_web_payload, pagination_plan, parse_archive_page,
+        validate_archive_page_metadata,
     };
     use serde_json::json;
 
@@ -1026,6 +1069,35 @@ mod archive_tests {
             "ptime": 1,
             "ctime": 1
         })
+    }
+
+    /// 创建单元测试所需的最小投稿参数。
+    ///
+    /// 输入参数：`post_upload_goods` 指定是否开启投稿后添加商品。
+    /// 返回值：可用于构造 Web v3 请求体的 `Studio`。
+    fn studio(post_upload_goods: bool) -> Studio {
+        serde_json::from_value(json!({
+            "tid": 65,
+            "title": "fixture",
+            "post_upload_goods": post_upload_goods
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn web_payload_adds_post_upload_goods_fields() {
+        let payload = build_web_payload(&studio(true), 1_234_567_890_123_456).unwrap();
+        assert_eq!(payload["adorder_id"], json!(1_234_567_890_123_456_u64));
+        assert_eq!(payload["adorder_type"], json!(2));
+        assert!(payload.get("post_upload_goods").is_none());
+    }
+
+    #[test]
+    fn web_payload_keeps_regular_submission_unchanged() {
+        let payload = build_web_payload(&studio(false), 1_234_567_890_123_456).unwrap();
+        assert!(payload.get("adorder_id").is_none());
+        assert!(payload.get("adorder_type").is_none());
+        assert!(payload.get("post_upload_goods").is_none());
     }
 
     #[test]
