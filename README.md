@@ -17,7 +17,7 @@
 </div>
 
 ## 🛠️ 功能
-* 提供 skill，让你的 Agent 成为 up 主: `npx skills add biliup/biliup`
+* 提供 skill，让你的 Agent 成为 up 主：将仓库中的 `SKILL.md` 放到对应 Agent 的 skill 目录
 * 开箱即用，多种安装方式，提供可视化 WebUi 界面
 * 多主播录制/上传，24X7 无人值守运行，高自定义元信息
 * 作为自动化流程中的命令行工具封装使用
@@ -46,6 +46,17 @@ B 站命令行投稿工具，支持**短信登录**、**账号密码登录**、*
 - 获取命令帮助 `biliup --help` 
 
 **文档地址**：<https://biliup.github.io/biliup-rs>
+
+### Skill 安装
+
+将本仓库的 `SKILL.md` 复制到所用 Agent 的 skill 目录，目录名使用 `biliup`：
+
+```shell
+mkdir -p ~/.agents/skills/biliup
+cp SKILL.md ~/.agents/skills/biliup/SKILL.md
+```
+
+其他 Agent 把目标路径换成对应的 skill 目录即可，例如 Grok 为 `~/.grok/skills/biliup/SKILL.md`。
 
 ### Web v3 视频带货投稿
 
