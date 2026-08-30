@@ -5,6 +5,7 @@ use biliup::client::StatelessClient;
 use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
+use biliup::uploader::goods::summarize_goods_item;
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, credential, line, load_config};
@@ -21,6 +22,7 @@ use qrcode::QrCode;
 use qrcode::render::unicode;
 use reqwest::Body;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -338,6 +340,99 @@ pub async fn top_reply(
     println!(
         "{}",
         serde_json::to_string_pretty(&ret).change_context_lazy(|| AppError::Unknown)?
+    );
+    Ok(())
+}
+
+/// 搜索可售会员购商品。
+///
+/// 输入：`user_cookie` 登录文件、`query` 检索词、`proxy` 可选代理。
+/// 返回：打印通过会员购校验的候选列表。
+pub async fn goods_search(
+    user_cookie: PathBuf,
+    query: String,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let items = bilibili
+        .search_membership_goods(&query)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    let summarized: Vec<Value> = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| summarize_goods_item(item, index))
+        .collect();
+    print_json(&Value::Array(summarized))
+}
+
+/// 预览或执行会员购商品挂载。
+///
+/// 输入：登录文件、稿件号、检索词、候选下标、展示位、卡片文案、可选商品 ID 白名单、是否真正提交。
+/// 返回：未加 `--execute` 时只打印将要提交的内容；提交后打印接口响应和 `finalResult`。
+#[allow(clippy::too_many_arguments)]
+pub async fn goods_attach(
+    user_cookie: PathBuf,
+    vid: Vid,
+    query: String,
+    index: usize,
+    place_type: u32,
+    prefix_text: String,
+    postfix_text: String,
+    another_name: String,
+    expected_item_id: Option<String>,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let plan = bilibili
+        .plan_goods_attach(
+            &query,
+            &vid,
+            index,
+            place_type,
+            &prefix_text,
+            &postfix_text,
+            &another_name,
+            expected_item_id.as_deref(),
+        )
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&json!({
+        "selectedItem": summarize_goods_item(&plan.item, index),
+        "addToCart": plan.cart_payload,
+        "attach": plan.attach_payload,
+    }))?;
+    if !execute {
+        println!("dry-run: goods attach {vid}");
+        println!("use --execute to send");
+        print_json(
+            &plan
+                .final_result("preview", json!("not_executed"), json!("not_executed"))
+                .change_context_lazy(|| AppError::Unknown)?,
+        )?;
+        return Ok(());
+    }
+    if !plan.needs_add_to_cart() {
+        println!("商品已在选品车，跳过加入步骤。");
+    }
+    let (cart_result, attach_result) = bilibili
+        .execute_goods_attach(&plan)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&cart_result)?;
+    print_json(&attach_result)?;
+    print_json(
+        &plan
+            .final_result("executed", cart_result, attach_result)
+            .change_context_lazy(|| AppError::Unknown)?,
+    )
+}
+
+fn print_json(value: &Value) -> AppResult<()> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).change_context_lazy(|| AppError::Unknown)?
     );
     Ok(())
 }

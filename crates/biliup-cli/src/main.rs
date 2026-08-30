@@ -1,11 +1,11 @@
 use time::macros::format_description;
 
 use biliup::uploader::util::SubmitOption;
-use biliup_cli::cli::{Cli, Commands, expand_path};
+use biliup_cli::cli::{Cli, Commands, GoodsCommands, expand_path};
 use biliup_cli::downloader::{download, generate_json};
 use biliup_cli::uploader::{
-    append, comments, list, login, renew, reply, show, top_reply, upload_by_command,
-    upload_by_config,
+    append, comments, goods_attach, goods_search, list, login, renew, reply, show, top_reply,
+    upload_by_command, upload_by_config,
 };
 
 use clap::Parser;
@@ -146,12 +146,34 @@ async fn main() -> AppResult<()> {
             rpid,
             unpin,
             execute,
+        } => top_reply(user_cookie, vid, rpid, unpin, execute, cli.proxy.as_deref()).await?,
+        Commands::Goods {
+            command: GoodsCommands::Search { query },
+        } => goods_search(user_cookie, query, cli.proxy.as_deref()).await?,
+        Commands::Goods {
+            command:
+                GoodsCommands::Attach {
+                    vid,
+                    query,
+                    index,
+                    place_type,
+                    prefix_text,
+                    postfix_text,
+                    another_name,
+                    expected_item_id,
+                    execute,
+                },
         } => {
-            top_reply(
+            goods_attach(
                 user_cookie,
                 vid,
-                rpid,
-                unpin,
+                query,
+                index,
+                place_type,
+                prefix_text,
+                postfix_text,
+                another_name,
+                expected_item_id,
                 execute,
                 cli.proxy.as_deref(),
             )

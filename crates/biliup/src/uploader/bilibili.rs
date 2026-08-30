@@ -762,7 +762,7 @@ impl BiliBili {
             .await?)
     }
 
-    async fn aid_from_vid(&self, vid: &Vid) -> Result<u64> {
+    pub(crate) async fn aid_from_vid(&self, vid: &Vid) -> Result<u64> {
         match vid {
             Vid::Aid(aid) => Ok(*aid),
             Vid::Bvid(bvid) => {
@@ -918,7 +918,7 @@ impl BiliBili {
         Err(Kind::Custom(result.message))
     }
 
-    fn get_csrf(&self) -> Result<&str> {
+    pub(crate) fn get_csrf(&self) -> Result<&str> {
         let csrf = self
             .login_info
             .cookie_info

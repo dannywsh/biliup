@@ -1,11 +1,11 @@
 use biliup::uploader::util::SubmitOption;
-use biliup_cli::cli::{Cli, Commands};
+use biliup_cli::cli::{Cli, Commands, GoodsCommands};
 use biliup_cli::downloader::generate_json;
 use biliup_cli::server::config::Config;
 use biliup_cli::server::errors::AppResult;
 use biliup_cli::uploader::{
-    append, comments, list, login, renew, reply, show, top_reply, upload_by_command,
-    upload_by_config,
+    append, comments, goods_attach, goods_search, list, login, renew, reply, show, top_reply,
+    upload_by_command, upload_by_config,
 };
 use clap::Parser;
 use pyo3::prelude::PyAnyMethods;
@@ -285,6 +285,38 @@ pub(crate) async fn _main(args: &[String]) -> AppResult<()> {
                 vid,
                 rpid,
                 unpin,
+                execute,
+                cli.proxy.as_deref(),
+            )
+            .await?
+        }
+        Commands::Goods {
+            command: GoodsCommands::Search { query },
+        } => goods_search(cli.user_cookie, query, cli.proxy.as_deref()).await?,
+        Commands::Goods {
+            command:
+                GoodsCommands::Attach {
+                    vid,
+                    query,
+                    index,
+                    place_type,
+                    prefix_text,
+                    postfix_text,
+                    another_name,
+                    expected_item_id,
+                    execute,
+                },
+        } => {
+            goods_attach(
+                cli.user_cookie,
+                vid,
+                query,
+                index,
+                place_type,
+                prefix_text,
+                postfix_text,
+                another_name,
+                expected_item_id,
                 execute,
                 cli.proxy.as_deref(),
             )

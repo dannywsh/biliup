@@ -151,6 +151,11 @@ pub enum Commands {
         #[arg(long)]
         execute: bool,
     },
+    /// 搜索会员购商品，或挂载到已发布视频
+    Goods {
+        #[command(subcommand)]
+        command: GoodsCommands,
+    },
     /// 输出flv元数据
     DumpFlv {
         #[arg()]
@@ -216,6 +221,52 @@ pub enum Commands {
         /// 最大获取页数
         #[arg(short, long)]
         max_pages: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GoodsCommands {
+    /// 搜索可售会员购商品
+    Search {
+        /// 会员购商品检索词
+        query: String,
+    },
+    /// 预览或执行会员购商品挂载，默认只打印将要提交的内容
+    Attach {
+        /// vid为稿件 av 或 bv 号
+        vid: Vid,
+
+        /// 会员购商品检索词
+        #[arg(short, long)]
+        query: String,
+
+        /// 搜索结果下标，默认 0
+        #[arg(long, default_value = "0")]
+        index: usize,
+
+        /// 带货编辑展示位，默认 12
+        #[arg(long, default_value = "12")]
+        place_type: u32,
+
+        /// 商品卡片前文案
+        #[arg(long, default_value = "")]
+        prefix_text: String,
+
+        /// 商品卡片后文案
+        #[arg(long, default_value = "")]
+        postfix_text: String,
+
+        /// 展示别名，默认使用商品原名
+        #[arg(long, default_value = "")]
+        another_name: String,
+
+        /// 可选的商品 ID 白名单；与选中搜索结果不一致时停止
+        #[arg(long)]
+        expected_item_id: Option<String>,
+
+        /// 实际写入选品车并挂载视频
+        #[arg(long)]
+        execute: bool,
     },
 }
 
@@ -306,6 +357,73 @@ mod tests {
                 execute: true,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn goods_search_parses_query() {
+        let cli = Cli::try_parse_from(["biliup", "goods", "search", "示例商品"]).unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Goods {
+                command: super::GoodsCommands::Search { ref query },
+            } if query == "示例商品"
+        ));
+    }
+
+    #[test]
+    fn goods_attach_defaults_to_dry_run() {
+        let cli =
+            Cli::try_parse_from(["biliup", "goods", "attach", "BV1test", "--query", "示例商品"])
+                .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Goods {
+                command: super::GoodsCommands::Attach {
+                    execute: false,
+                    index: 0,
+                    place_type: 12,
+                    expected_item_id: None,
+                    ..
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn goods_attach_accepts_execute_and_item_guard() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "goods",
+            "attach",
+            "BV1test",
+            "--query",
+            "示例商品",
+            "--expected-item-id",
+            "12345678",
+            "--another-name",
+            "示例展示名",
+            "--postfix-text",
+            "示例后缀",
+            "--execute",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Goods {
+                command: super::GoodsCommands::Attach {
+                    execute: true,
+                    ref expected_item_id,
+                    ref another_name,
+                    ref postfix_text,
+                    ..
+                }
+            } if expected_item_id.as_deref() == Some("12345678")
+                && another_name == "示例展示名"
+                && postfix_text == "示例后缀"
         ));
     }
 }

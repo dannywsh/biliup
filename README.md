@@ -86,6 +86,16 @@ biliup top-reply BV1xxx <rpid> --execute
 biliup top-reply BV1xxx <rpid> --unpin --execute
 ```
 
+### 会员购商品挂载
+
+`goods attach` 默认 dry-run，必须加 `--execute` 才会加入选品车并挂载到已发布视频。只接受会员购商品（`sourceType=5`，可售，跳转 `mall.bilibili.com`）。用户给出商品 `itemId` 时传入 `--expected-item-id`。稿件可用 av 或 bv。
+
+```shell
+biliup goods search '示例商品'
+biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678
+biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678 --execute
+```
+
 ```shell
 Upload video to bilibili.
 
@@ -100,6 +110,7 @@ Commands:
   comments   查看视频评论
   reply      回复视频评论，默认只打印将要回复的内容
   top-reply  置顶或取消置顶视频评论，默认只打印将要执行的操作
+  goods      搜索会员购商品，或挂载到已发布视频
   dump-flv   输出flv元数据
   download  下载视频
   server    启动web服务，默认端口19159

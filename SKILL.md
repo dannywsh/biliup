@@ -1,13 +1,13 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, and manage comments (comments, reply, top-reply).
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), and attach Membership Shop goods (goods search, goods attach).
 ---
 
 # biliup
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods` and `top-reply`. Use the binary built from this source, not a generic release.
+This repository adds `--post-upload-goods`, `top-reply`, and `goods`. Use the binary built from this source, not a generic release.
 
 ## Install
 
@@ -18,7 +18,7 @@ cargo build --release -p biliup-cli --bin biliup
 install -m 755 target/release/biliup "$HOME/.local/bin/biliup"
 ```
 
-If the workspace root is the parent of this repo, `cd` into `biliup` first. Confirm `biliup --help` lists `top-reply` and `biliup upload --help` lists `--post-upload-goods`. If `$HOME/.local/bin` is not on `PATH`, call the binary by full path.
+If the workspace root is the parent of this repo, `cd` into `biliup` first. Confirm `biliup --help` lists `top-reply` and `goods`, and `biliup upload --help` lists `--post-upload-goods`. If `$HOME/.local/bin` is not on `PATH`, call the binary by full path.
 
 ## Upload with post-upload goods
 
@@ -51,6 +51,23 @@ biliup top-reply BV1xxx <rpid> --execute
 biliup top-reply BV1xxx <rpid> --unpin --execute
 ```
 
+## Membership Shop goods
+
+`goods attach` is dry-run unless `--execute` is passed. It searches Membership Shop items (`sourceType=5`, sellable, `mall.bilibili.com` jump URL), adds the item to the selection cart when needed, and attaches it to a published video. This is not a comment; use `reply` / `top-reply` for 带货评论.
+
+If the user gives an `itemId`, pass `--expected-item-id` so a similar search hit cannot be attached. `vid` may be av or bv; the command resolves AID internally. `finalResult.jumpUrl` is the product link to reuse later.
+
+```bash
+biliup goods search '示例商品'
+biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678
+biliup goods attach BV1xxx \
+  --query '示例商品' \
+  --expected-item-id 12345678 \
+  --another-name '示例展示名' \
+  --postfix-text '示例后缀' \
+  --execute
+```
+
 ## Server
 
 ```bash
@@ -71,6 +88,7 @@ show
 comments
 reply
 top-reply
+goods
 dump-flv
 download
 server
