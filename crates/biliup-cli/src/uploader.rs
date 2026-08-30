@@ -344,10 +344,10 @@ pub async fn top_reply(
     Ok(())
 }
 
-/// 搜索可售会员购商品。
+/// 按会员购联盟优先、UP 主小店回退的顺序搜索可售商品。
 ///
 /// 输入：`user_cookie` 登录文件、`query` 检索词、`proxy` 可选代理。
-/// 返回：打印通过会员购校验的候选列表。
+/// 返回：打印第一个有候选的商品来源列表。
 pub async fn goods_search(
     user_cookie: PathBuf,
     query: String,
@@ -355,7 +355,7 @@ pub async fn goods_search(
 ) -> AppResult<()> {
     let bilibili = login_by_cookies(user_cookie, proxy).await?;
     let items = bilibili
-        .search_membership_goods(&query)
+        .search_goods(&query)
         .await
         .change_context_lazy(|| AppError::Unknown)?;
     let summarized: Vec<Value> = items
@@ -366,7 +366,7 @@ pub async fn goods_search(
     print_json(&Value::Array(summarized))
 }
 
-/// 预览或执行会员购商品挂载。
+/// 预览或执行商品挂载。
 ///
 /// 输入：登录文件、稿件号、检索词、候选下标、展示位、卡片文案、可选商品 ID 白名单、是否真正提交。
 /// 返回：未加 `--execute` 时只打印将要提交的内容；提交后打印接口响应和 `finalResult`。

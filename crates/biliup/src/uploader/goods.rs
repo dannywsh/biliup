@@ -2,7 +2,9 @@ use super::bilibili::{BiliBili, Vid};
 use crate::error::{Kind, Result};
 use serde_json::{Value, json};
 
-const MEMBERSHIP_SHOP_SOURCE_TYPE: i64 = 5;
+const MEMBERSHIP_ALLIANCE_SOURCE_TYPE: i64 = 5;
+const UP_STORE_SOURCE_TYPE: i64 = 8;
+const SEARCH_SOURCE_TYPES: [i64; 2] = [MEMBERSHIP_ALLIANCE_SOURCE_TYPE, UP_STORE_SOURCE_TYPE];
 const SEARCH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/search";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
@@ -50,13 +52,13 @@ impl GoodsAttachPlan {
     }
 }
 
-/// 过滤出可售会员购商品。
+/// 按商品来源过滤可售的 B 站商城商品。
 ///
-/// 输入：搜索接口 `data.items`。返回：`sourceType=5`、可售且跳转会员购域名的商品。
-pub fn filter_membership_goods(items: &[Value]) -> Vec<Value> {
+/// 输入：搜索接口 `data.items` 和目标 `source_type`。返回：来源匹配、可售且跳转 B 站商城域名的商品。
+pub fn filter_sellable_mall_goods(items: &[Value], source_type: i64) -> Vec<Value> {
     items
         .iter()
-        .filter(|item| is_membership_goods(item))
+        .filter(|item| is_sellable_mall_goods(item, source_type))
         .cloned()
         .collect()
 }
@@ -170,8 +172,11 @@ fn collect_failed_res_codes_into(value: &Value, failures: &mut Vec<String>) {
     }
 }
 
-fn is_membership_goods(item: &Value) -> bool {
-    json_i64(item.get("sourceType")) == Some(MEMBERSHIP_SHOP_SOURCE_TYPE)
+/// 判断商品是否为指定来源的可挂载商城商品。
+///
+/// 输入：商城搜索接口返回的单个商品对象和预期来源。返回：来源匹配、可售与商城跳转要求时为 `true`。
+fn is_sellable_mall_goods(item: &Value, source_type: i64) -> bool {
+    json_i64(item.get("sourceType")) == Some(source_type)
         && item.get("goodsStatus") == Some(&Value::Bool(true))
         && item
             .get("jumpUrl")
@@ -245,14 +250,15 @@ impl BiliBili {
         Ok(payload)
     }
 
-    /// 按会员购来源搜索可售商品。
+    /// 按指定来源搜索可售商品。
     ///
-    /// 输入：`query` 为商品检索词。返回：通过会员购校验的候选列表。
-    pub async fn search_membership_goods(&self, query: &str) -> Result<Vec<Value>> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Err(Kind::Custom("检索词不能为空".to_string()));
-        }
+    /// 输入：`query` 为商品检索词，`source_type` 为会员购联盟或 UP 主小店来源。
+    /// 返回：该来源下可售的商城商品候选列表。
+    async fn search_goods_by_source_type(
+        &self,
+        query: &str,
+        source_type: i64,
+    ) -> Result<Vec<Value>> {
         let response = self
             .mall_json_post(
                 SEARCH_URL,
@@ -262,15 +268,35 @@ impl BiliBili {
                     "query": query,
                     "page": SEARCH_PAGE,
                     "size": SEARCH_SIZE,
-                    "sourceTypes": MEMBERSHIP_SHOP_SOURCE_TYPE.to_string(),
+                    "sourceTypes": source_type.to_string(),
                     "sortType": 6,
                 }),
             )
             .await?;
-        Ok(filter_membership_goods(&search_items(&response)?))
+        Ok(filter_sellable_mall_goods(
+            &search_items(&response)?,
+            source_type,
+        ))
     }
 
-    /// 预览会员购挂载：搜索、校验商品并构造请求体，不发起写操作。
+    /// 按优先级搜索可售商品。
+    ///
+    /// 输入：`query` 为商品检索词。返回：优先返回会员购联盟（`sourceType=5`）候选；为空时回退至 UP 主小店（`sourceType=8`）。
+    pub async fn search_goods(&self, query: &str) -> Result<Vec<Value>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(Kind::Custom("检索词不能为空".to_string()));
+        }
+        for source_type in SEARCH_SOURCE_TYPES {
+            let candidates = self.search_goods_by_source_type(query, source_type).await?;
+            if !candidates.is_empty() {
+                return Ok(candidates);
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    /// 预览商品挂载：搜索、校验商品并构造请求体，不发起写操作。
     ///
     /// 输入：检索词、稿件、结果下标、展示位、卡片文案和可选商品 ID 白名单。
     /// 返回：可供确认或随后执行的挂载计划。
@@ -286,10 +312,10 @@ impl BiliBili {
         another_name: &str,
         expected_item_id: Option<&str>,
     ) -> Result<GoodsAttachPlan> {
-        let candidates = self.search_membership_goods(query).await?;
+        let candidates = self.search_goods(query).await?;
         if candidates.is_empty() {
             return Err(Kind::Custom(
-                "未找到可售会员购商品；请调整检索词，不要降级到非会员购来源。".to_string(),
+                "未找到可售会员购联盟或 UP 主小店商品；请调整检索词。".to_string(),
             ));
         }
         let item = candidates.get(index).cloned().ok_or_else(|| {
@@ -349,15 +375,15 @@ impl BiliBili {
 mod tests {
     use super::{
         GoodsAttachPlan, build_attach_payload, build_cart_payload, collect_failed_res_codes,
-        filter_membership_goods, summarize_goods_item, validate_expected_item_id,
+        filter_sellable_mall_goods, summarize_goods_item, validate_expected_item_id,
     };
     use serde_json::json;
 
-    fn membership_item() -> serde_json::Value {
+    fn up_store_item() -> serde_json::Value {
         json!({
             "itemId": 12345678,
-            "goodsName": "示例会员购商品",
-            "sourceType": 5,
+            "goodsName": "示例 UP 主小店商品",
+            "sourceType": 8,
             "goodsStatus": true,
             "price": 99,
             "commissionFee": 12,
@@ -366,8 +392,21 @@ mod tests {
         })
     }
 
+    fn membership_alliance_item() -> serde_json::Value {
+        json!({
+            "itemId": 87654321,
+            "goodsName": "示例会员购联盟商品",
+            "sourceType": 5,
+            "goodsStatus": true,
+            "price": 99,
+            "commissionFee": 12,
+            "inSelectionCarState": 0,
+            "jumpUrl": "https://mall.bilibili.com/detail.html?itemId=87654321"
+        })
+    }
+
     #[test]
-    fn membership_filter_keeps_only_sellable_mall_items() {
+    fn source_filter_keeps_only_matching_sellable_mall_items() {
         let taobao = json!({
             "itemId": "1",
             "sourceType": 1,
@@ -376,18 +415,27 @@ mod tests {
         });
         let unavailable = json!({
             "itemId": "2",
-            "sourceType": 5,
+            "sourceType": 8,
             "goodsStatus": false,
             "jumpUrl": "https://mall.bilibili.com/detail.html?itemId=2"
         });
-        let filtered = filter_membership_goods(&[membership_item(), taobao, unavailable]);
+        let filtered = filter_sellable_mall_goods(&[up_store_item(), taobao, unavailable], 8);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0]["itemId"], json!(12345678));
     }
 
     #[test]
+    fn source_filters_keep_membership_alliance_and_up_store_separate() {
+        let items = vec![membership_alliance_item(), up_store_item()];
+        let membership = filter_sellable_mall_goods(&items, 5);
+        let up_store = filter_sellable_mall_goods(&items, 8);
+        assert_eq!(membership[0]["itemId"], json!(87654321));
+        assert_eq!(up_store[0]["itemId"], json!(12345678));
+    }
+
+    #[test]
     fn cart_payload_copies_search_item_and_maps_commission() {
-        let payload = build_cart_payload(&membership_item(), 1, 0).unwrap();
+        let payload = build_cart_payload(&up_store_item(), 1, 0).unwrap();
         assert_eq!(payload["operateSource"], json!(4));
         assert_eq!(payload["fromType"], json!(18));
         assert_eq!(payload["goods"][0]["income"], json!(12));
@@ -397,8 +445,7 @@ mod tests {
 
     #[test]
     fn attach_payload_uses_aid_string_and_place_type() {
-        let payload =
-            build_attach_payload("12345678", 123456789, 12, "", "示例后缀", "示例展示名");
+        let payload = build_attach_payload("12345678", 123456789, 12, "", "示例后缀", "示例展示名");
         assert_eq!(payload["itemId"], json!("12345678"));
         assert_eq!(payload["videoInfos"][0]["avId"], json!("123456789"));
         assert_eq!(payload["cmcInfos"][0]["cmcPlaceType"], json!(12));
@@ -408,9 +455,9 @@ mod tests {
 
     #[test]
     fn expected_item_id_blocks_mismatched_search_result() {
-        assert!(validate_expected_item_id(&membership_item(), None).is_ok());
-        assert!(validate_expected_item_id(&membership_item(), Some("12345678")).is_ok());
-        let error = validate_expected_item_id(&membership_item(), Some("999"))
+        assert!(validate_expected_item_id(&up_store_item(), None).is_ok());
+        assert!(validate_expected_item_id(&up_store_item(), Some("12345678")).is_ok());
+        let error = validate_expected_item_id(&up_store_item(), Some("999"))
             .unwrap_err()
             .to_string();
         assert!(error.contains("期望 999"));
@@ -419,7 +466,7 @@ mod tests {
 
     #[test]
     fn attach_plan_skips_cart_when_already_selected() {
-        let mut item = membership_item();
+        let mut item = up_store_item();
         item["inSelectionCarState"] = json!(1);
         let plan = GoodsAttachPlan {
             cart_payload: json!({}),
@@ -439,7 +486,7 @@ mod tests {
 
     #[test]
     fn summary_includes_index_and_jump_url() {
-        let summary = summarize_goods_item(&membership_item(), 2);
+        let summary = summarize_goods_item(&up_store_item(), 2);
         assert_eq!(summary["index"], json!(2));
         assert_eq!(summary["itemId"], json!(12345678));
         assert!(

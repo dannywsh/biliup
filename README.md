@@ -86,9 +86,9 @@ biliup top-reply BV1xxx <rpid> --execute
 biliup top-reply BV1xxx <rpid> --unpin --execute
 ```
 
-### 会员购商品挂载
+### 商品挂载
 
-`goods attach` 默认 dry-run，必须加 `--execute` 才会加入选品车并挂载到已发布视频。只接受会员购商品（`sourceType=5`，可售，跳转 `mall.bilibili.com`）。用户给出商品 `itemId` 时传入 `--expected-item-id`。稿件可用 av 或 bv。
+`goods attach` 默认 dry-run，必须加 `--execute` 才会加入选品车并挂载到已发布视频。搜索时先查询会员购联盟商品（`sourceType=5`）；该来源没有可售商城候选时，再回退查询 UP 主小店商品（`sourceType=8`）。两类候选均要求可售且跳转 `mall.bilibili.com`。用户给出商品 `itemId` 时传入 `--expected-item-id`。稿件可用 av 或 bv。
 
 ```shell
 biliup goods search '示例商品'

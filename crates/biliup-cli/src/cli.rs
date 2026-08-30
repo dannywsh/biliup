@@ -151,7 +151,7 @@ pub enum Commands {
         #[arg(long)]
         execute: bool,
     },
-    /// 搜索会员购商品，或挂载到已发布视频
+    /// 搜索商品，或挂载到已发布视频
     Goods {
         #[command(subcommand)]
         command: GoodsCommands,
@@ -226,17 +226,17 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum GoodsCommands {
-    /// 搜索可售会员购商品
+    /// 优先搜索可售会员购联盟商品，未命中时搜索 UP 主小店商品
     Search {
-        /// 会员购商品检索词
+        /// 商品检索词
         query: String,
     },
-    /// 预览或执行会员购商品挂载，默认只打印将要提交的内容
+    /// 预览或执行商品挂载，默认只打印将要提交的内容
     Attach {
         /// vid为稿件 av 或 bv 号
         vid: Vid,
 
-        /// 会员购商品检索词
+        /// 商品检索词
         #[arg(short, long)]
         query: String,
 
@@ -374,9 +374,15 @@ mod tests {
 
     #[test]
     fn goods_attach_defaults_to_dry_run() {
-        let cli =
-            Cli::try_parse_from(["biliup", "goods", "attach", "BV1test", "--query", "示例商品"])
-                .unwrap();
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "goods",
+            "attach",
+            "BV1test",
+            "--query",
+            "示例商品",
+        ])
+        .unwrap();
 
         assert!(matches!(
             cli.command,
