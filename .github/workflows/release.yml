@@ -5,14 +5,17 @@ on:
 
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*.*.*'
     ## - release
 
 env:
   BIN_NAME: biliup
-  PROJECT_NAME: biliupR
+  PROJECT_NAME: biliup
 #  REPO_NAME: spectralops/rust-ci-release-template
 #  BREW_TAP: jondot/homebrew-tap
+
+permissions:
+  contents: write
 
 jobs:
   dist:
@@ -69,11 +72,11 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: true
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Build frontend
@@ -120,7 +123,7 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          if [ "${{ matrix.os }}" = "windows-2019" ]; then
+          if [ "${{ matrix.build }}" = "x86_64-windows" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
@@ -137,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: false
 
