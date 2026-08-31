@@ -4,7 +4,7 @@
 
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
-- 会员购联盟 / UP 主小店商品搜索与挂载（`goods search` / `goods attach`）
+- 会员购商品链接精确识别与挂载（`goods search` / `goods attach`）
 - 给 Agent 用的 [`SKILL.md`](SKILL.md)
 
 **请使用本仓库构建或发布的 `biliup`。** PyPI 上的 `biliup`、上游 GitHub Release，以及 `uv tool install biliup` 都不包含上述能力。安装后用 `biliup --help` 确认存在 `top-reply`、`goods`；用 `biliup upload --help` 确认存在 `--post-upload-goods`。
@@ -99,13 +99,13 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
 - 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
 
-搜索顺序：先查可售会员购联盟商品（`sourceType=5`），没有命中再查 UP 主小店（`sourceType=8`）。两类都要求可售，且跳转 `mall.bilibili.com`。用户给出 `itemId` 时传入 `--expected-item-id`，避免检索词相似导致挂错。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。
+`goods search` 和 `goods attach` 仅接受完整的 `https://mall.bilibili.com/` 商品链接或纯数字 `itemId`。纯数字 `itemId` 会自动拼成会员购商品链接，并调用商品链接识别接口精确查验；不再按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。
 
 ```bash
-biliup goods search '示例商品'
-biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678
+biliup goods search 12345678
+biliup goods attach BV1xxx --query 12345678 --expected-item-id 12345678
 biliup goods attach BV1xxx \
-  --query '示例商品' \
+  --query 12345678 \
   --expected-item-id 12345678 \
   --frame-title '示例框下标题' \
   --another-name '示例展示名' \

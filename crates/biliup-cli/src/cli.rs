@@ -226,9 +226,9 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum GoodsCommands {
-    /// 优先搜索可售会员购联盟商品，未命中时搜索 UP 主小店商品
+    /// 通过商品链接或 itemId 精确识别可挂载会员购商品
     Search {
-        /// 商品检索词
+        /// 商品链接或纯数字 itemId
         query: String,
     },
     /// 预览或执行商品挂载，默认只打印将要提交的内容
@@ -236,7 +236,7 @@ pub enum GoodsCommands {
         /// vid为稿件 av 或 bv 号
         vid: Vid,
 
-        /// 商品检索词
+        /// 商品链接或纯数字 itemId
         #[arg(short, long)]
         query: String,
 

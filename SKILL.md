@@ -53,15 +53,15 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## Membership Shop goods
 
-`goods attach` is dry-run unless `--execute` is passed. It searches Membership Shop items (`sourceType=5`, sellable, `mall.bilibili.com` jump URL), adds the item to the selection cart when needed, and attaches it to a published video in two placements at once: under the player (`cmcPlaceType=1`) and the 带货编辑 card (default `cmcPlaceType=12`). This is not a comment; use `reply` / `top-reply` for 带货评论.
+`goods attach` is dry-run unless `--execute` is passed. It accepts a Membership Shop product URL or a numeric `itemId`, identifies that exact product through the Membership Shop URL-distinguishing API, adds it to the selection cart when needed, and attaches it to a published video in two placements at once: under the player (`cmcPlaceType=1`) and the 带货编辑 card (default `cmcPlaceType=12`). It does not perform a title fuzzy search. This is not a comment; use `reply` / `top-reply` for 带货评论.
 
-If the user gives an `itemId`, pass `--expected-item-id` so a similar search hit cannot be attached. `vid` may be av or bv; the command resolves AID internally. `finalResult.jumpUrl` is the product link to reuse later. `--frame-title` is the under-player title and must be at most 12 characters; if omitted, the display name is truncated.
+Numeric `itemId` values are automatically converted to a product URL. `vid` may be av or bv; the command resolves AID internally. `finalResult.jumpUrl` is the product link to reuse later. `--frame-title` is the under-player title and must be at most 12 characters; if omitted, the display name is truncated.
 
 ```bash
-biliup goods search '示例商品'
-biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678
+biliup goods search 12345678
+biliup goods attach BV1xxx --query 12345678 --expected-item-id 12345678
 biliup goods attach BV1xxx \
-  --query '示例商品' \
+  --query 12345678 \
   --expected-item-id 12345678 \
   --frame-title '示例框下标题' \
   --another-name '示例展示名' \

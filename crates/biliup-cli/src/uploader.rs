@@ -344,10 +344,10 @@ pub async fn top_reply(
     Ok(())
 }
 
-/// 按会员购联盟优先、UP 主小店回退的顺序搜索可售商品。
+/// 通过商品链接或 itemId 精确识别可售会员购商品。
 ///
-/// 输入：`user_cookie` 登录文件、`query` 检索词、`proxy` 可选代理。
-/// 返回：打印第一个有候选的商品来源列表。
+/// 输入：`user_cookie` 登录文件、`query` 商品链接或 itemId、`proxy` 可选代理。
+/// 返回：打印链接识别出的商品列表，不执行标题模糊搜索。
 pub async fn goods_search(
     user_cookie: PathBuf,
     query: String,
@@ -368,7 +368,7 @@ pub async fn goods_search(
 
 /// 预览或执行商品挂载。
 ///
-/// 输入：登录文件、稿件号、检索词、候选下标、展示位、卡片文案、视频框下标题、可选商品 ID 白名单、是否真正提交。
+/// 输入：登录文件、稿件号、商品链接或 itemId、候选下标、展示位、卡片文案、视频框下标题、可选商品 ID 白名单、是否真正提交。
 /// 返回：未加 `--execute` 时只打印将要提交的内容；提交后打印接口响应和 `finalResult`。
 #[allow(clippy::too_many_arguments)]
 pub async fn goods_attach(

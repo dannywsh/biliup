@@ -2,15 +2,13 @@ use super::bilibili::{BiliBili, Vid};
 use crate::error::{Kind, Result};
 use serde_json::{Value, json};
 
-const MEMBERSHIP_ALLIANCE_SOURCE_TYPE: i64 = 5;
-const UP_STORE_SOURCE_TYPE: i64 = 8;
-const SEARCH_SOURCE_TYPES: [i64; 2] = [MEMBERSHIP_ALLIANCE_SOURCE_TYPE, UP_STORE_SOURCE_TYPE];
-const SEARCH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/search";
+const DISTINGUISH_URLS_URL: &str =
+    "https://mall.bilibili.com/mall-cbp/web/cmc/goods/distinguish/urls";
 const GOODS_DETAIL_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/id";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
-const SEARCH_PAGE: u32 = 1;
-const SEARCH_SIZE: u32 = 20;
+const GOODS_SEARCH_PAGE: u32 = 1;
+const ITEM_URL_TEMPLATE: &str = "https://mall.bilibili.com/detail.html?from=card_item&jumpLinkType=0&loadingShow=1&noTitleBar=1#goFrom=na&itemsId={item_id}&noReffer=true";
 /// 视频框下商品卡展示位。
 pub const UNDER_VIDEO_PLACE_TYPE: u32 = 1;
 /// 带货编辑默认展示位。
@@ -22,7 +20,7 @@ const UNDER_VIDEO_STYLE: u8 = 1;
 /// 构造挂载计划所需的检索、展示位和文案参数。
 #[derive(Debug, Clone, Copy)]
 pub struct GoodsAttachOptions<'a> {
-    /// 商品检索词。
+    /// 商品链接或纯数字 itemId。
     pub query: &'a str,
     /// 稿件 av 或 bv。
     pub vid: &'a Vid,
@@ -81,17 +79,6 @@ impl GoodsAttachPlan {
             }
         }))
     }
-}
-
-/// 按商品来源过滤可售的 B 站商城商品。
-///
-/// 输入：搜索接口 `data.items` 和目标 `source_type`。返回：来源匹配、可售且跳转 B 站商城域名的商品。
-pub fn filter_sellable_mall_goods(items: &[Value], source_type: i64) -> Vec<Value> {
-    items
-        .iter()
-        .filter(|item| is_sellable_mall_goods(item, source_type))
-        .cloned()
-        .collect()
 }
 
 /// 从商品对象提取搜索命令需要展示的字段。
@@ -261,18 +248,6 @@ fn collect_failed_res_codes_into(value: &Value, failures: &mut Vec<String>) {
     }
 }
 
-/// 判断商品是否为指定来源的可挂载商城商品。
-///
-/// 输入：商城搜索接口返回的单个商品对象和预期来源。返回：来源匹配、可售与商城跳转要求时为 `true`。
-fn is_sellable_mall_goods(item: &Value, source_type: i64) -> bool {
-    json_i64(item.get("sourceType")) == Some(source_type)
-        && item.get("goodsStatus") == Some(&Value::Bool(true))
-        && item
-            .get("jumpUrl")
-            .and_then(Value::as_str)
-            .is_some_and(|url| url.contains("mall.bilibili.com"))
-}
-
 fn json_i64(value: Option<&Value>) -> Option<i64> {
     match value? {
         Value::Number(number) => number.as_i64(),
@@ -297,12 +272,81 @@ fn required_string(item: &Value, field: &str) -> Result<String> {
         .ok_or_else(|| Kind::Custom(format!("商品缺少 {field}")))
 }
 
-fn search_items(response: &Value) -> Result<Vec<Value>> {
-    match response.pointer("/data/items") {
-        Some(Value::Array(items)) => Ok(items.clone()),
-        Some(_) => Err(Kind::Custom("搜索接口 items 必须是数组".to_string())),
-        None => Ok(Vec::new()),
+/// 将用户输入规范化为会员购识别接口所需的商品链接。
+///
+/// 输入：完整的 `mall.bilibili.com` 商品链接，或纯数字 `itemId`。
+/// 返回：可直接放入 `itemUrls` 的商品链接；输入无效时返回错误。
+pub fn normalize_goods_url(input: &str) -> Result<String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(Kind::Custom("商品链接或 itemId 不能为空".to_string()));
     }
+    if input.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Ok(ITEM_URL_TEMPLATE.replace("{item_id}", input));
+    }
+    let url = reqwest::Url::parse(input)
+        .map_err(|_| Kind::Custom("商品链接必须是有效 URL 或纯数字 itemId".to_string()))?;
+    if url.scheme() != "https" || url.host_str() != Some("mall.bilibili.com") {
+        return Err(Kind::Custom(
+            "商品链接必须来自 https://mall.bilibili.com/".to_string(),
+        ));
+    }
+    Ok(input.to_string())
+}
+
+/// 提取并规范化商品链接识别接口的成功结果。
+///
+/// 输入：`distinguish/urls` 的完整 JSON 响应。
+/// 返回：可供选品车和挂载接口复用的商品列表；接口结构或识别失败时返回错误。
+pub fn distinguish_goods_items(response: &Value) -> Result<Vec<Value>> {
+    let items = response
+        .pointer("/data/successList")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Kind::Custom("商品识别接口缺少 data.successList".to_string()))?;
+    let failures = response
+        .pointer("/data/failList")
+        .and_then(Value::as_array)
+        .map(|list| list.len())
+        .unwrap_or(0);
+    let mut result = Vec::with_capacity(items.len());
+    for item in items {
+        if json_i64(item.get("distinguishState")).is_some_and(|state| state != 0) {
+            continue;
+        }
+        let mut normalized = item
+            .get("goodsDto")
+            .cloned()
+            .filter(Value::is_object)
+            .ok_or_else(|| Kind::Custom("商品识别结果缺少 goodsDto".to_string()))?;
+        let object = normalized
+            .as_object_mut()
+            .expect("goodsDto has been verified as object");
+        for key in [
+            "itemId",
+            "outerId",
+            "sourceType",
+            "mainImgUrl",
+            "goodsName",
+            "price",
+            "commissionFee",
+            "commissionRate",
+        ] {
+            if let Some(value) = item.get(key) {
+                object.insert(key.to_string(), value.clone());
+            }
+        }
+        object.insert(
+            "inSelectionCarState".to_string(),
+            item.get("inSelectionCarState").cloned().unwrap_or(json!(0)),
+        );
+        result.push(normalized);
+    }
+    if result.is_empty() && failures > 0 {
+        return Err(Kind::Custom(
+            "商品链接识别失败，请确认链接或 itemId 有效且可挂载".to_string(),
+        ));
+    }
+    Ok(result)
 }
 
 impl BiliBili {
@@ -370,50 +414,18 @@ impl BiliBili {
         parse_main_image_url(&response)
     }
 
-    /// 按指定来源搜索可售商品。
+    /// 按商品链接精确识别可挂载商品。
     ///
-    /// 输入：`query` 为商品检索词，`source_type` 为会员购联盟或 UP 主小店来源。
-    /// 返回：该来源下可售的商城商品候选列表。
-    async fn search_goods_by_source_type(
-        &self,
-        query: &str,
-        source_type: i64,
-    ) -> Result<Vec<Value>> {
+    /// 输入：完整商品链接或纯数字 `itemId`。返回：链接识别出的商品列表，不进行标题模糊匹配。
+    pub async fn search_goods(&self, query: &str) -> Result<Vec<Value>> {
+        let item_url = normalize_goods_url(query)?;
         let response = self
             .mall_json_post(
-                SEARCH_URL,
-                &json!({
-                    "cmcFirstCatNames": "",
-                    "goodsName": query,
-                    "query": query,
-                    "page": SEARCH_PAGE,
-                    "size": SEARCH_SIZE,
-                    "sourceTypes": source_type.to_string(),
-                    "sortType": 6,
-                }),
+                DISTINGUISH_URLS_URL,
+                &json!({"itemUrls": item_url}),
             )
             .await?;
-        Ok(filter_sellable_mall_goods(
-            &search_items(&response)?,
-            source_type,
-        ))
-    }
-
-    /// 按优先级搜索可售商品。
-    ///
-    /// 输入：`query` 为商品检索词。返回：优先返回会员购联盟（`sourceType=5`）候选；为空时回退至 UP 主小店（`sourceType=8`）。
-    pub async fn search_goods(&self, query: &str) -> Result<Vec<Value>> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Err(Kind::Custom("检索词不能为空".to_string()));
-        }
-        for source_type in SEARCH_SOURCE_TYPES {
-            let candidates = self.search_goods_by_source_type(query, source_type).await?;
-            if !candidates.is_empty() {
-                return Ok(candidates);
-            }
-        }
-        Ok(Vec::new())
+        distinguish_goods_items(&response)
     }
 
     /// 预览商品挂载：搜索、校验商品、拉取主图并构造请求体，不发起写操作。
@@ -427,7 +439,7 @@ impl BiliBili {
         let candidates = self.search_goods(options.query).await?;
         if candidates.is_empty() {
             return Err(Kind::Custom(
-                "未找到可售会员购联盟或 UP 主小店商品；请调整检索词。".to_string(),
+                "未识别到可挂载商品；请确认商品链接或 itemId。".to_string(),
             ));
         }
         let item = candidates.get(options.index).cloned().ok_or_else(|| {
@@ -448,7 +460,7 @@ impl BiliBili {
         let image_url = self.fetch_main_image_url(&item_id).await?;
         let aid = self.aid_from_vid(options.vid).await?;
         Ok(GoodsAttachPlan {
-            cart_payload: build_cart_payload(&item, SEARCH_PAGE, options.index)?,
+            cart_payload: build_cart_payload(&item, GOODS_SEARCH_PAGE, options.index)?,
             attach_payload: build_attach_payload(
                 &item_id,
                 aid,
@@ -493,8 +505,9 @@ mod tests {
     use super::{
         DEFAULT_CARD_PLACE_TYPE, GoodsAttachPlan, UNDER_VIDEO_PLACE_TYPE,
         UNDER_VIDEO_TITLE_MAX_CHARS, build_attach_payload, build_cart_payload,
-        collect_failed_res_codes, filter_sellable_mall_goods, parse_main_image_url,
-        summarize_goods_item, truncate_chars, under_video_title, validate_expected_item_id,
+        collect_failed_res_codes, distinguish_goods_items, normalize_goods_url,
+        parse_main_image_url, summarize_goods_item, truncate_chars, under_video_title,
+        validate_expected_item_id,
     };
     use serde_json::json;
 
@@ -511,45 +524,40 @@ mod tests {
         })
     }
 
-    fn membership_alliance_item() -> serde_json::Value {
-        json!({
-            "itemId": 87654321,
-            "goodsName": "示例会员购联盟商品",
-            "sourceType": 5,
-            "goodsStatus": true,
-            "price": 99,
-            "commissionFee": 12,
-            "inSelectionCarState": 0,
-            "jumpUrl": "https://mall.bilibili.com/detail.html?itemId=87654321"
-        })
+    #[test]
+    fn numeric_item_id_is_converted_to_membership_shop_url() {
+        let url = normalize_goods_url("12345678").unwrap();
+        assert!(url.contains("itemsId=12345678"));
+        assert!(normalize_goods_url("示例商品").is_err());
+        assert!(normalize_goods_url("https://example.com/item/12345678").is_err());
     }
 
     #[test]
-    fn source_filter_keeps_only_matching_sellable_mall_items() {
-        let taobao = json!({
-            "itemId": "1",
-            "sourceType": 1,
-            "goodsStatus": true,
-            "jumpUrl": "https://item.taobao.com/item.htm"
+    fn distinguish_response_is_normalized_for_cart_and_attach() {
+        let response = json!({
+            "code": 0,
+            "data": {
+                "failList": [],
+                "successList": [{
+                    "itemId": "12345678",
+                    "sourceType": 5,
+                    "goodsName": "示例商品",
+                    "mainImgUrl": "https://i0.hdslb.com/example.png",
+                    "distinguishState": 0,
+                    "goodsDto": {
+                        "itemId": 12345678,
+                        "goodsStatus": 1,
+                        "jumpUrl": "https://mall.bilibili.com/detail.html?itemsId=12345678",
+                        "commissionFee": 7.68
+                    }
+                }]
+            }
         });
-        let unavailable = json!({
-            "itemId": "2",
-            "sourceType": 8,
-            "goodsStatus": false,
-            "jumpUrl": "https://mall.bilibili.com/detail.html?itemId=2"
-        });
-        let filtered = filter_sellable_mall_goods(&[up_store_item(), taobao, unavailable], 8);
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0]["itemId"], json!(12345678));
-    }
-
-    #[test]
-    fn source_filters_keep_membership_alliance_and_up_store_separate() {
-        let items = vec![membership_alliance_item(), up_store_item()];
-        let membership = filter_sellable_mall_goods(&items, 5);
-        let up_store = filter_sellable_mall_goods(&items, 8);
-        assert_eq!(membership[0]["itemId"], json!(87654321));
-        assert_eq!(up_store[0]["itemId"], json!(12345678));
+        let items = distinguish_goods_items(&response).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["itemId"], json!("12345678"));
+        assert_eq!(items[0]["inSelectionCarState"], json!(0));
+        assert_eq!(items[0]["goodsName"], json!("示例商品"));
     }
 
     #[test]
