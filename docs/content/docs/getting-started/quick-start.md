@@ -47,10 +47,10 @@ Download this theme to your PATH directory:
 pip install biliup
 ```
 
-Or install by docker:
+Or build a Docker image from this repository:
 
 ```bash
-docker pull ghcr.io/dannywsh/biliup:latest
+docker build -t biliup .
 ```
 
 ### Step 3: Configuration

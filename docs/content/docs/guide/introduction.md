@@ -77,19 +77,22 @@ __FFmpeg__ 作为可选依赖。如果还有问题可以 [加群讨论](https://
 # 在下载目录创建配置文件
 vim /host/path/config.toml
 # 启动biliup的docker容器
-docker run -P --name biliup -v /host/path:/opt -d ghcr.io/dannywsh/biliup:master
+docker build -t biliup .
+docker run -P --name biliup -v /host/path:/opt -d biliup
 ```
 * 从自定义的配置文件启动
 ```bash
 # 在下载目录创建配置文件
 vim /host/path/config.toml
 # 启动biliup的docker容器，并启用用户验证。请注意替换 yourpassword 为你的密码。
-docker run -P --name biliup -v /host/path:/opt -p 19159:19159 -d --restart always ghcr.io/dannywsh/biliup:latest --password yourpassword
+docker build -t biliup .
+docker run -P --name biliup -v /host/path:/opt -p 19159:19159 -d --restart always biliup --password yourpassword
 ```
  > Web-UI 默认用户名为 biliup。
 * 从默认配置文件启动
 ```bash
-docker run -P --name biliup -v /host/path:/opt -p 19159:19159 -d --restart always ghcr.io/dannywsh/biliup:latest --password yourpassword
+docker build -t biliup .
+docker run -P --name biliup -v /host/path:/opt -p 19159:19159 -d --restart always biliup --password yourpassword
 ```
 ### 方式二 手动构建镜像
 ```bash
