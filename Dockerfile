@@ -1,6 +1,6 @@
 # Build biliup's web-ui
 FROM node:lts AS webui-builder
-ARG repo_url=https://github.com/biliup/biliup
+ARG repo_url=https://github.com/dannywsh/biliup
 ARG branch_name=master
 
 COPY . /biliup
@@ -21,7 +21,7 @@ RUN set -eux; \
 
 # Build biliup's python wheel
 FROM rust:latest AS wheel-builder
-ARG repo_url=https://github.com/biliup/biliup
+ARG repo_url=https://github.com/dannywsh/biliup
 ARG branch_name=master
 
 COPY . /biliup

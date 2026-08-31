@@ -1,6 +1,9 @@
 name: Docker
 
 on:
+  # 允许在修复发布配置后从 Actions 页面按需重新构建镜像。
+  workflow_dispatch:
+
   push:
     # Publish `master` as Docker `latest` image.
     branches:
@@ -18,7 +21,8 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/biliup/caution
+  # 以当前仓库为 GHCR 命名空间，避免 fork 推送到上游镜像而遭到权限拒绝。
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   # Run tests.

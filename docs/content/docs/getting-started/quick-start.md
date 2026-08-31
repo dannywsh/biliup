@@ -50,7 +50,7 @@ pip install biliup
 Or install by docker:
 
 ```bash
-docker pull ghcr.io/biliup/caution:latest
+docker pull ghcr.io/dannywsh/biliup:latest
 ```
 
 ### Step 3: Configuration

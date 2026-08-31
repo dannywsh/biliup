@@ -142,7 +142,8 @@ biliup server --bind 0.0.0.0 --port 19159 --auth
 
 首次打开会引导设置管理员密码，用户名固定为 `biliup`。绑定非回环地址且未开 `--auth` 会拒绝启动。经 HTTPS 反向代理时再加 `--secure-session-cookie`；直接用 HTTP 远程访问时不要加，否则浏览器会丢弃登录态。
 
-不要使用上游 Docker 镜像 `ghcr.io/biliup/caution` 来跑本仓库的 CLI 扩展。
+Docker 镜像由本仓库发布到 `ghcr.io/dannywsh/biliup`；不要使用上游的
+`ghcr.io/biliup/caution`，其中不包含本仓库的 CLI 扩展。
 
 ## Agent Skill
 
