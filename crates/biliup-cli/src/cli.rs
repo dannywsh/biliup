@@ -244,7 +244,7 @@ pub enum GoodsCommands {
         #[arg(long, default_value = "0")]
         index: usize,
 
-        /// 带货编辑展示位，默认 12
+        /// 带货编辑展示位，默认 12；始终同时挂视频框下
         #[arg(long, default_value = "12")]
         place_type: u32,
 
@@ -259,6 +259,10 @@ pub enum GoodsCommands {
         /// 展示别名，默认使用商品原名
         #[arg(long, default_value = "")]
         another_name: String,
+
+        /// 视频框下标题，最多 12 个字符；默认从展示名截取
+        #[arg(long, default_value = "")]
+        frame_title: String,
 
         /// 可选的商品 ID 白名单；与选中搜索结果不一致时停止
         #[arg(long)]
@@ -413,6 +417,8 @@ mod tests {
             "示例展示名",
             "--postfix-text",
             "示例后缀",
+            "--frame-title",
+            "示例框下标题",
             "--execute",
         ])
         .unwrap();
@@ -425,11 +431,13 @@ mod tests {
                     ref expected_item_id,
                     ref another_name,
                     ref postfix_text,
+                    ref frame_title,
                     ..
                 }
             } if expected_item_id.as_deref() == Some("12345678")
                 && another_name == "示例展示名"
                 && postfix_text == "示例后缀"
+                && frame_title == "示例框下标题"
         ));
     }
 }

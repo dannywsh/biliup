@@ -6,10 +6,41 @@ const MEMBERSHIP_ALLIANCE_SOURCE_TYPE: i64 = 5;
 const UP_STORE_SOURCE_TYPE: i64 = 8;
 const SEARCH_SOURCE_TYPES: [i64; 2] = [MEMBERSHIP_ALLIANCE_SOURCE_TYPE, UP_STORE_SOURCE_TYPE];
 const SEARCH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/search";
+const GOODS_DETAIL_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/id";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
 const SEARCH_PAGE: u32 = 1;
 const SEARCH_SIZE: u32 = 20;
+/// 视频框下商品卡展示位。
+pub const UNDER_VIDEO_PLACE_TYPE: u32 = 1;
+/// 带货编辑默认展示位。
+pub const DEFAULT_CARD_PLACE_TYPE: u32 = 12;
+/// 视频框下标题最大字符数。
+pub const UNDER_VIDEO_TITLE_MAX_CHARS: usize = 12;
+const UNDER_VIDEO_STYLE: u8 = 1;
+
+/// 构造挂载计划所需的检索、展示位和文案参数。
+#[derive(Debug, Clone, Copy)]
+pub struct GoodsAttachOptions<'a> {
+    /// 商品检索词。
+    pub query: &'a str,
+    /// 稿件 av 或 bv。
+    pub vid: &'a Vid,
+    /// 搜索结果下标。
+    pub index: usize,
+    /// 带货编辑展示位，默认 12；会与视频框下（1）一并提交。
+    pub place_type: u32,
+    /// 带货卡片前文案。
+    pub prefix_text: &'a str,
+    /// 带货卡片后文案。
+    pub postfix_text: &'a str,
+    /// 带货卡片展示别名；为空时使用商品原名。
+    pub another_name: &'a str,
+    /// 视频框下标题；为空时从展示名截取，最多 12 个字符。
+    pub frame_title: Option<&'a str>,
+    /// 可选的商品 ID 白名单。
+    pub expected_item_id: Option<&'a str>,
+}
 
 /// 会员购挂载预览结果。
 ///
@@ -101,9 +132,55 @@ pub fn build_cart_payload(item: &Value, page: u32, index: usize) -> Result<Value
     }))
 }
 
+/// 截取指定数量的 Unicode 字符。
+///
+/// 输入：`text` 为原文，`max_chars` 为最大字符数。返回：截断后的字符串。
+pub fn truncate_chars(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+/// 生成视频框下标题。
+///
+/// 输入：`display_name` 为商品展示名，`frame_title` 为可选显式标题。
+/// 返回：不超过 12 个字符的标题；显式标题超长或结果为空时返回错误。
+pub fn under_video_title(display_name: &str, frame_title: Option<&str>) -> Result<String> {
+    match frame_title.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(explicit) => {
+            let count = explicit.chars().count();
+            if count > UNDER_VIDEO_TITLE_MAX_CHARS {
+                return Err(Kind::Custom(format!(
+                    "视频框下标题最多 {UNDER_VIDEO_TITLE_MAX_CHARS} 个字符，当前为 {count}。"
+                )));
+            }
+            Ok(explicit.to_string())
+        }
+        None => {
+            let title = truncate_chars(display_name.trim(), UNDER_VIDEO_TITLE_MAX_CHARS);
+            if title.is_empty() {
+                return Err(Kind::Custom("视频框下标题不能为空".to_string()));
+            }
+            Ok(title)
+        }
+    }
+}
+
+/// 从商品详情接口响应提取主图。
+///
+/// 输入：`response` 为 `shop_goods/id` 的 JSON。返回：`data.main_image_url`。
+pub fn parse_main_image_url(response: &Value) -> Result<String> {
+    response
+        .pointer("/data/main_image_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| Kind::Custom("商品详情缺少 main_image_url".to_string()))
+}
+
 /// 构造会员购商品挂载请求体。
 ///
-/// 输入：商品 ID、视频 AID、展示位和卡片文案。返回：挂载接口 JSON body。
+/// 输入：商品 ID、视频 AID、带货编辑展示位、卡片文案、视频框下标题和主图。
+/// 返回：同时包含视频框下（`cmcPlaceType=1`）和带货编辑卡的 JSON body；带货展示位为 1 时不重复提交。
 pub fn build_attach_payload(
     item_id: &str,
     aid: u64,
@@ -111,16 +188,28 @@ pub fn build_attach_payload(
     prefix_text: &str,
     postfix_text: &str,
     another_name: &str,
+    frame_title: &str,
+    image_url: &str,
 ) -> Value {
-    json!({
-        "itemId": item_id,
-        "videoInfos": [{"avId": aid.to_string()}],
-        "cmcInfos": [{
+    let mut cmc_infos = vec![json!({
+        "cmcPlaceType": UNDER_VIDEO_PLACE_TYPE,
+        "title": frame_title,
+        "imageUrl": image_url,
+        "style": UNDER_VIDEO_STYLE,
+        "masTaskId": "",
+    })];
+    if place_type != UNDER_VIDEO_PLACE_TYPE {
+        cmc_infos.push(json!({
             "cmcPlaceType": place_type,
             "prefixText": prefix_text,
             "postfixText": postfix_text,
             "anotherName": another_name,
-        }]
+        }));
+    }
+    json!({
+        "itemId": item_id,
+        "videoInfos": [{"avId": aid.to_string()}],
+        "cmcInfos": cmc_infos,
     })
 }
 
@@ -217,24 +306,28 @@ fn search_items(response: &Value) -> Result<Vec<Value>> {
 }
 
 impl BiliBili {
-    /// 向会员购带货接口发送 JSON POST。
+    /// 为会员购带货请求补齐创作中心同源头。
     ///
-    /// 输入：`url` 为接口地址，`body` 为 JSON 请求体。
-    /// 返回：`code=0` 的完整响应；失败时带上接口 `message`。
-    async fn mall_json_post(&self, url: &str, body: &Value) -> Result<Value> {
+    /// 输入：`request` 为待发送请求。返回：带 Origin、Referer 和 csrf 头的请求。
+    fn with_mall_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder> {
         let csrf = self.get_csrf()?;
-        let response = self
-            .client
-            .post(url)
+        Ok(request
             .header("Origin", "https://member.bilibili.com")
             .header("Referer", "https://member.bilibili.com/")
             .header("Accept", "application/json, text/plain, */*")
             .header("X-Requested-With", "XMLHttpRequest")
             .header("csrf-token", csrf)
-            .header("csrf-jct", csrf)
-            .json(body)
-            .send()
-            .await?;
+            .header("csrf-jct", csrf))
+    }
+
+    /// 发送会员购请求并校验 `code=0`。
+    ///
+    /// 输入：已构造的 `request`。返回：完整 JSON；HTTP 或业务码失败时带上接口信息。
+    async fn send_mall_request(&self, request: reqwest::RequestBuilder) -> Result<Value> {
+        let response = request.send().await?;
         let status = response.status();
         let payload: Value = response
             .json()
@@ -248,6 +341,33 @@ impl BiliBili {
             )));
         }
         Ok(payload)
+    }
+
+    /// 向会员购带货接口发送 JSON POST。
+    ///
+    /// 输入：`url` 为接口地址，`body` 为 JSON 请求体。
+    /// 返回：`code=0` 的完整响应；失败时带上接口 `message`。
+    async fn mall_json_post(&self, url: &str, body: &Value) -> Result<Value> {
+        let request = self.with_mall_headers(self.client.post(url).json(body))?;
+        self.send_mall_request(request).await
+    }
+
+    /// 向会员购带货接口发送 GET。
+    ///
+    /// 输入：`url` 为接口地址，`query` 为查询参数。返回：`code=0` 的完整响应。
+    async fn mall_json_get(&self, url: &str, query: &[(&str, &str)]) -> Result<Value> {
+        let request = self.with_mall_headers(self.client.get(url).query(query))?;
+        self.send_mall_request(request).await
+    }
+
+    /// 按商品 ID 拉取详情主图。
+    ///
+    /// 输入：`item_id` 为商城商品 ID。返回：`data.main_image_url`。
+    async fn fetch_main_image_url(&self, item_id: &str) -> Result<String> {
+        let response = self
+            .mall_json_get(GOODS_DETAIL_URL, &[("shop_goods_id", item_id)])
+            .await?;
+        parse_main_image_url(&response)
     }
 
     /// 按指定来源搜索可售商品。
@@ -296,51 +416,48 @@ impl BiliBili {
         Ok(Vec::new())
     }
 
-    /// 预览商品挂载：搜索、校验商品并构造请求体，不发起写操作。
+    /// 预览商品挂载：搜索、校验商品、拉取主图并构造请求体，不发起写操作。
     ///
-    /// 输入：检索词、稿件、结果下标、展示位、卡片文案和可选商品 ID 白名单。
-    /// 返回：可供确认或随后执行的挂载计划。
-    #[allow(clippy::too_many_arguments)]
+    /// 输入：`options` 含检索词、稿件、展示位、卡片文案、可选视频框下标题和商品 ID 白名单。
+    /// 返回：可供确认或随后执行的挂载计划，请求体同时包含视频框下和带货编辑卡。
     pub async fn plan_goods_attach(
         &self,
-        query: &str,
-        vid: &Vid,
-        index: usize,
-        place_type: u32,
-        prefix_text: &str,
-        postfix_text: &str,
-        another_name: &str,
-        expected_item_id: Option<&str>,
+        options: GoodsAttachOptions<'_>,
     ) -> Result<GoodsAttachPlan> {
-        let candidates = self.search_goods(query).await?;
+        let candidates = self.search_goods(options.query).await?;
         if candidates.is_empty() {
             return Err(Kind::Custom(
                 "未找到可售会员购联盟或 UP 主小店商品；请调整检索词。".to_string(),
             ));
         }
-        let item = candidates.get(index).cloned().ok_or_else(|| {
+        let item = candidates.get(options.index).cloned().ok_or_else(|| {
             Kind::Custom(format!(
-                "候选下标 {index} 超出范围，共 {} 个候选。",
+                "候选下标 {} 超出范围，共 {} 个候选。",
+                options.index,
                 candidates.len()
             ))
         })?;
-        validate_expected_item_id(&item, expected_item_id)?;
+        validate_expected_item_id(&item, options.expected_item_id)?;
         let item_id = required_item_id(&item)?;
-        let display_name = if another_name.trim().is_empty() {
+        let display_name = if options.another_name.trim().is_empty() {
             required_string(&item, "goodsName")?
         } else {
-            another_name.to_string()
+            options.another_name.to_string()
         };
-        let aid = self.aid_from_vid(vid).await?;
+        let frame_title = under_video_title(&display_name, options.frame_title)?;
+        let image_url = self.fetch_main_image_url(&item_id).await?;
+        let aid = self.aid_from_vid(options.vid).await?;
         Ok(GoodsAttachPlan {
-            cart_payload: build_cart_payload(&item, SEARCH_PAGE, index)?,
+            cart_payload: build_cart_payload(&item, SEARCH_PAGE, options.index)?,
             attach_payload: build_attach_payload(
                 &item_id,
                 aid,
-                place_type,
-                prefix_text,
-                postfix_text,
+                options.place_type,
+                options.prefix_text,
+                options.postfix_text,
                 &display_name,
+                &frame_title,
+                &image_url,
             ),
             item,
         })
@@ -374,8 +491,10 @@ impl BiliBili {
 #[cfg(test)]
 mod tests {
     use super::{
-        GoodsAttachPlan, build_attach_payload, build_cart_payload, collect_failed_res_codes,
-        filter_sellable_mall_goods, summarize_goods_item, validate_expected_item_id,
+        DEFAULT_CARD_PLACE_TYPE, GoodsAttachPlan, UNDER_VIDEO_PLACE_TYPE,
+        UNDER_VIDEO_TITLE_MAX_CHARS, build_attach_payload, build_cart_payload,
+        collect_failed_res_codes, filter_sellable_mall_goods, parse_main_image_url,
+        summarize_goods_item, truncate_chars, under_video_title, validate_expected_item_id,
     };
     use serde_json::json;
 
@@ -444,13 +563,97 @@ mod tests {
     }
 
     #[test]
-    fn attach_payload_uses_aid_string_and_place_type() {
-        let payload = build_attach_payload("12345678", 123456789, 12, "", "示例后缀", "示例展示名");
+    fn attach_payload_includes_under_video_and_card_placements() {
+        let payload = build_attach_payload(
+            "12345678",
+            123456789,
+            DEFAULT_CARD_PLACE_TYPE,
+            "",
+            "示例后缀",
+            "示例展示名",
+            "示例框下标题",
+            "https://example.com/cover.png",
+        );
         assert_eq!(payload["itemId"], json!("12345678"));
         assert_eq!(payload["videoInfos"][0]["avId"], json!("123456789"));
-        assert_eq!(payload["cmcInfos"][0]["cmcPlaceType"], json!(12));
-        assert_eq!(payload["cmcInfos"][0]["postfixText"], json!("示例后缀"));
-        assert_eq!(payload["cmcInfos"][0]["anotherName"], json!("示例展示名"));
+        assert_eq!(payload["cmcInfos"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            payload["cmcInfos"][0]["cmcPlaceType"],
+            json!(UNDER_VIDEO_PLACE_TYPE)
+        );
+        assert_eq!(payload["cmcInfos"][0]["title"], json!("示例框下标题"));
+        assert_eq!(
+            payload["cmcInfos"][0]["imageUrl"],
+            json!("https://example.com/cover.png")
+        );
+        assert_eq!(payload["cmcInfos"][0]["style"], json!(1));
+        assert_eq!(payload["cmcInfos"][0]["masTaskId"], json!(""));
+        assert_eq!(
+            payload["cmcInfos"][1]["cmcPlaceType"],
+            json!(DEFAULT_CARD_PLACE_TYPE)
+        );
+        assert_eq!(payload["cmcInfos"][1]["postfixText"], json!("示例后缀"));
+        assert_eq!(payload["cmcInfos"][1]["anotherName"], json!("示例展示名"));
+    }
+
+    #[test]
+    fn attach_payload_skips_duplicate_under_video_card() {
+        let payload = build_attach_payload(
+            "12345678",
+            1,
+            UNDER_VIDEO_PLACE_TYPE,
+            "",
+            "",
+            "示例展示名",
+            "示例框下标题",
+            "https://example.com/cover.png",
+        );
+        assert_eq!(payload["cmcInfos"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            payload["cmcInfos"][0]["cmcPlaceType"],
+            json!(UNDER_VIDEO_PLACE_TYPE)
+        );
+    }
+
+    #[test]
+    fn under_video_title_truncates_display_name_and_rejects_overlong_explicit_title() {
+        assert_eq!(
+            under_video_title("示例商品名称超过十二个字符了", None).unwrap(),
+            "示例商品名称超过十二个字"
+        );
+        assert_eq!(
+            under_video_title("很长的商品名", Some("示例框下标题")).unwrap(),
+            "示例框下标题"
+        );
+        let error = under_video_title("商品", Some("这是一个超过十二个字符的标题"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("最多 12 个字符"));
+        assert_eq!(
+            truncate_chars("示例商品名称超过十二个字符", UNDER_VIDEO_TITLE_MAX_CHARS)
+                .chars()
+                .count(),
+            12
+        );
+    }
+
+    #[test]
+    fn parse_main_image_url_reads_goods_detail_data() {
+        let response = json!({
+            "success": true,
+            "data": {
+                "shop_goods_id": 12345678,
+                "shop_goods_name": "示例商品",
+                "main_image_url": "https://example.com/cover.png"
+            },
+            "code": 0,
+            "message": "success"
+        });
+        assert_eq!(
+            parse_main_image_url(&response).unwrap(),
+            "https://example.com/cover.png"
+        );
+        assert!(parse_main_image_url(&json!({"code": 0, "data": {}})).is_err());
     }
 
     #[test]

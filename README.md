@@ -94,7 +94,10 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## 商品挂载
 
-`goods` 把商品挂到**已发布**视频的带货编辑位，不是发评论。带货评论继续用 `reply` / `top-reply`。
+`goods` 把商品挂到**已发布**视频，不是发评论。带货评论继续用 `reply` / `top-reply`。一次挂载会同时提交两个展示位：
+
+- 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
+- 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
 
 搜索顺序：先查可售会员购联盟商品（`sourceType=5`），没有命中再查 UP 主小店（`sourceType=8`）。两类都要求可售，且跳转 `mall.bilibili.com`。用户给出 `itemId` 时传入 `--expected-item-id`，避免检索词相似导致挂错。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。
 
@@ -104,12 +107,13 @@ biliup goods attach BV1xxx --query '示例商品' --expected-item-id 12345678
 biliup goods attach BV1xxx \
   --query '示例商品' \
   --expected-item-id 12345678 \
+  --frame-title '示例框下标题' \
   --another-name '示例展示名' \
   --postfix-text '示例后缀' \
   --execute
 ```
 
-执行成功后看 `finalResult.jumpUrl`，这是后续填表用的商品链接。`--index` 选择搜索结果下标（默认 `0`），`--place-type` 是带货展示位（默认 `12`）。
+执行成功后看 `finalResult.jumpUrl`，这是后续填表用的商品链接。`--index` 选择搜索结果下标（默认 `0`）。未传 `--frame-title` 时，从展示名截取前 12 个字符。
 
 ## 其他命令
 

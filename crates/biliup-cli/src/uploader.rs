@@ -5,7 +5,7 @@ use biliup::client::StatelessClient;
 use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
-use biliup::uploader::goods::summarize_goods_item;
+use biliup::uploader::goods::{GoodsAttachOptions, summarize_goods_item};
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, credential, line, load_config};
@@ -368,7 +368,7 @@ pub async fn goods_search(
 
 /// 预览或执行商品挂载。
 ///
-/// 输入：登录文件、稿件号、检索词、候选下标、展示位、卡片文案、可选商品 ID 白名单、是否真正提交。
+/// 输入：登录文件、稿件号、检索词、候选下标、展示位、卡片文案、视频框下标题、可选商品 ID 白名单、是否真正提交。
 /// 返回：未加 `--execute` 时只打印将要提交的内容；提交后打印接口响应和 `finalResult`。
 #[allow(clippy::too_many_arguments)]
 pub async fn goods_attach(
@@ -380,22 +380,24 @@ pub async fn goods_attach(
     prefix_text: String,
     postfix_text: String,
     another_name: String,
+    frame_title: String,
     expected_item_id: Option<String>,
     execute: bool,
     proxy: Option<&str>,
 ) -> AppResult<()> {
     let bilibili = login_by_cookies(user_cookie, proxy).await?;
     let plan = bilibili
-        .plan_goods_attach(
-            &query,
-            &vid,
+        .plan_goods_attach(GoodsAttachOptions {
+            query: &query,
+            vid: &vid,
             index,
             place_type,
-            &prefix_text,
-            &postfix_text,
-            &another_name,
-            expected_item_id.as_deref(),
-        )
+            prefix_text: &prefix_text,
+            postfix_text: &postfix_text,
+            another_name: &another_name,
+            frame_title: Some(frame_title.as_str()).filter(|title| !title.trim().is_empty()),
+            expected_item_id: expected_item_id.as_deref(),
+        })
         .await
         .change_context_lazy(|| AppError::Unknown)?;
     print_json(&json!({
