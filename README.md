@@ -185,6 +185,8 @@ npm run build
 python3 -m biliup
 ```
 
+推送形如 `vX.Y.Z` 的标签会创建 GitHub Release；各平台二进制均以 ZIP 格式发布。
+
 ## 上游与许可
 
 基于 [biliup/biliup](https://github.com/biliup/biliup)，许可证为 MIT。直播下载依赖 `streamlink`、`yt-dlp` 等上游能力。
