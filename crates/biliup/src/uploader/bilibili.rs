@@ -460,6 +460,55 @@ pub struct ReplyList {
     pub upper: Option<ReplyUpper>,
 }
 
+/// 去掉错误预览里可能出现的登录凭证片段。
+///
+/// 输入：接口正文前缀。返回：把 cookie / csrf / access_key 等值替换成 `***` 后的文本。
+fn redact_secret_preview(text: &str) -> String {
+    const KEYS: &[&str] = &[
+        "SESSDATA",
+        "bili_jct",
+        "access_key",
+        "access_token",
+        "csrf",
+        "DedeUserID",
+        "buvid3",
+        "buvid4",
+    ];
+    let mut out = text.replace(['\n', '\r'], " ");
+    for key in KEYS {
+        let patterns = [format!("{key}="), format!("\"{key}\":")];
+        for needle in patterns {
+            let mut search_from = 0;
+            while let Some(pos) = out[search_from..].to_ascii_lowercase().find(&needle.to_ascii_lowercase())
+            {
+                let value_start = search_from + pos + needle.len();
+                let rest = &out[value_start..];
+                let skip = rest
+                    .chars()
+                    .take_while(|c| *c == '"' || *c == '\'' || c.is_whitespace())
+                    .count();
+                let secret_start = value_start + skip;
+                let secret_len = out[secret_start..]
+                    .chars()
+                    .take_while(|c| {
+                        *c != '&'
+                            && *c != ';'
+                            && *c != '"'
+                            && *c != '\''
+                            && *c != ','
+                            && *c != '}'
+                            && !c.is_whitespace()
+                    })
+                    .count();
+                let secret_end = secret_start + secret_len;
+                out.replace_range(secret_start..secret_end, "***");
+                search_from = secret_start + 3;
+            }
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug)]
 pub struct BiliBili {
     pub client: reqwest::Client,
@@ -707,7 +756,7 @@ impl BiliBili {
 
     /// 查询视频的 json 信息
     pub async fn video_data(&self, vid: &Vid, proxy: Option<&str>) -> Result<Value> {
-        let res: ResponseData = reqwest::Client::proxy_builder(proxy)
+        let response = reqwest::Client::proxy_builder(proxy)
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/63.0.3239.108")
             .timeout(Duration::new(60, 0))
             .build()?
@@ -716,9 +765,9 @@ impl BiliBili {
                 self.login_info.token_info.access_token
             ))
             .send()
-            .await?
-            .json()
             .await?;
+        let payload = Self::json_from_response(response).await?;
+        let res: ResponseData = serde_json::from_value(payload)?;
         match res {
             res @ ResponseData {
                 code: _,
@@ -762,28 +811,77 @@ impl BiliBili {
             .await?)
     }
 
+    /// 读取 HTTP 响应正文并解析为 JSON。
+    ///
+    /// 输入：已完成的 `reqwest::Response`。返回：解析后的 JSON 对象；正文为空、HTML
+    /// 或其它非 JSON 时带上 HTTP 状态、content-type 和打码后的正文前缀，避免只看到
+    /// `expected value at line 1 column 1`，也不把 cookie / csrf / access_key 打到日志里。
+    pub(crate) async fn json_from_response(response: reqwest::Response) -> Result<Value> {
+        let path = response.url().path().to_string();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = response.bytes().await?;
+        serde_json::from_slice(&bytes).map_err(|error| {
+            let preview = redact_secret_preview(&String::from_utf8_lossy(
+                &bytes[..bytes.len().min(180)],
+            ));
+            Kind::Custom(format!(
+                "接口 {path} 返回的不是 JSON：HTTP {status} content-type={content_type} bytes={} preview={preview:?} ({error})",
+                bytes.len()
+            ))
+        })
+    }
+
+    async fn aid_from_public_view(&self, bvid: &str) -> Result<u64> {
+        let response = self
+            .client
+            .get("https://api.bilibili.com/x/web-interface/view")
+            .header(reqwest::header::REFERER, "https://www.bilibili.com/")
+            .query(&[("bvid", bvid)])
+            .send()
+            .await?;
+        let payload = Self::json_from_response(response).await?;
+        let code = payload.get("code").and_then(Value::as_i64).unwrap_or(-1);
+        if code != 0 {
+            let message = payload
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            return Err(Kind::Custom(format!(
+                "公开稿件接口失败：code={code} message={message}"
+            )));
+        }
+        payload
+            .pointer("/data/aid")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| Kind::Custom("公开稿件接口缺少 data.aid".to_string()))
+    }
+
+    async fn aid_from_member_archive(&self, vid: &Vid) -> Result<u64> {
+        let data = self.video_data(vid, None).await?;
+        data.pointer("/archive/aid")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| Kind::Custom("创作中心稿件详情缺少 archive.aid".to_string()))
+    }
+
     pub(crate) async fn aid_from_vid(&self, vid: &Vid) -> Result<u64> {
         match vid {
             Vid::Aid(aid) => Ok(*aid),
-            Vid::Bvid(bvid) => {
-                let res: ResponseData = self
-                    .client
-                    .get("https://api.bilibili.com/x/web-interface/view")
-                    .query(&[("bvid", bvid)])
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
-
-                match res {
-                    ResponseData {
-                        code: 0,
-                        data: Some(data),
-                        ..
-                    } => data["aid"].as_u64().ok_or("aid error".into()),
-                    res => Err(Kind::Custom(format!("{res:?}"))),
-                }
-            }
+            Vid::Bvid(bvid) => match self.aid_from_public_view(bvid).await {
+                Ok(aid) => Ok(aid),
+                Err(public_error) => self.aid_from_member_archive(vid).await.map_err(
+                    |member_error| {
+                        Kind::Custom(format!(
+                            "无法把 {bvid} 解析成 AID。公开接口：{public_error}；创作中心接口：{member_error}"
+                        ))
+                    },
+                ),
+            },
         }
     }
 
@@ -1089,9 +1187,22 @@ impl<T: Serialize> Display for ResponseData<T> {
 mod archive_tests {
     use super::{
         RawArchivePageMetadata, Studio, build_web_payload, pagination_plan, parse_archive_page,
-        validate_archive_page_metadata,
+        redact_secret_preview, validate_archive_page_metadata,
     };
     use serde_json::json;
+
+    #[test]
+    fn secret_preview_redacts_cookie_and_token_fragments() {
+        let preview = redact_secret_preview(
+            "SESSDATA=abc.def; bili_jct=deadbeef csrf=token123 \"access_key\":\"secret-key\"",
+        );
+        assert!(!preview.contains("abc.def"));
+        assert!(!preview.contains("deadbeef"));
+        assert!(!preview.contains("token123"));
+        assert!(!preview.contains("secret-key"));
+        assert!(preview.contains("SESSDATA=***"));
+        assert!(preview.contains("access_key\":\"***"));
+    }
 
     fn archive() -> serde_json::Value {
         json!({

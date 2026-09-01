@@ -372,11 +372,7 @@ impl BiliBili {
     /// 输入：已构造的 `request`。返回：完整 JSON；HTTP 或业务码失败时带上接口信息。
     async fn send_mall_request(&self, request: reqwest::RequestBuilder) -> Result<Value> {
         let response = request.send().await?;
-        let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|error| Kind::Custom(format!("接口请求失败：HTTP {status} {error}")))?;
+        let payload = Self::json_from_response(response).await?;
         let code = json_i64(payload.get("code")).unwrap_or(-1);
         if code != 0 {
             let message = payload.get("message").and_then(Value::as_str).unwrap_or("");
@@ -392,7 +388,13 @@ impl BiliBili {
     /// 输入：`url` 为接口地址，`body` 为 JSON 请求体。
     /// 返回：`code=0` 的完整响应；失败时带上接口 `message`。
     async fn mall_json_post(&self, url: &str, body: &Value) -> Result<Value> {
-        let request = self.with_mall_headers(self.client.post(url).json(body))?;
+        let csrf = self.get_csrf()?;
+        let request = self.with_mall_headers(
+            self.client
+                .post(url)
+                .query(&[("csrf", csrf)])
+                .json(body),
+        )?;
         self.send_mall_request(request).await
     }
 
