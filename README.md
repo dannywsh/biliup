@@ -5,7 +5,7 @@
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
 - 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
-- 给 Agent 用的 [`SKILL.md`](SKILL.md)
+- 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
 **请使用本仓库构建或发布的 `biliup`。** PyPI 上的 `biliup`、上游 GitHub Release，以及 `uv tool install biliup` 都不包含上述能力。安装后用 `biliup --help` 确认存在 `top-reply`、`goods`；用 `biliup upload --help` 确认存在 `--post-upload-goods`。
 
@@ -99,7 +99,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
 - 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
 
-`goods search` 和 `goods attach` 仅接受完整的 `https://mall.bilibili.com/` 商品链接或纯数字 `itemId`。纯数字 `itemId` 会自动拼成会员购商品链接，并调用商品链接识别接口精确查验；不再按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 中的 `id` 就是票务 `itemId`，不要把整条 `show.bilibili.com` URL 传给 CLI。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`SKILL.md`](SKILL.md)。
+`goods search` 和 `goods attach` 仅接受完整的 `https://mall.bilibili.com/` 商品链接或纯数字 `itemId`。纯数字 `itemId` 会自动拼成会员购商品链接，并调用商品链接识别接口精确查验；不再按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 中的 `id` 就是票务 `itemId`，不要把整条 `show.bilibili.com` URL 传给 CLI。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
 ```bash
 biliup goods search 12345678
@@ -152,14 +152,11 @@ biliup server --bind 0.0.0.0 --port 19159 --auth
 
 ## Agent Skill
 
-把仓库里的 `SKILL.md` 复制到 Agent 的 skill 目录，目录名使用 `biliup`：
-
 ```bash
-mkdir -p ~/.agents/skills/biliup
-cp SKILL.md ~/.agents/skills/biliup/SKILL.md
+npx skills add dannywsh/biliup -g -y
 ```
 
-Grok 对应路径为 `~/.grok/skills/biliup/SKILL.md`。
+只安装 `skills/biliup/SKILL.md`，不会把整个 CLI 仓库拷进 skill 目录。CLI 二进制仍按上面的「安装」构建或从 Release 下载。
 
 ## 开发
 
