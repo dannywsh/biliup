@@ -19,7 +19,7 @@ Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` �
 
 ### 从源码构建
 
-需要 Rust 工具链。若还要带 Web UI 静态资源，先构建前端：
+需要 Rust 工具链，以及 Node.js ≥ 18.17（Next.js 14）。`biliup-cli` 通过 `rust-embed` 内嵌前端产物目录 `out/`，干净克隆上必须先构建前端，否则编译会失败：
 
 ```bash
 npm i
@@ -28,7 +28,7 @@ cargo build --release -p biliup-cli --bin biliup
 install -m 755 target/release/biliup "$HOME/.local/bin/biliup"
 ```
 
-只做命令行投稿、评论、商品挂载时，也可以跳过 `npm`，直接 `cargo build --release -p biliup-cli --bin biliup`。若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。
+本机已有 `out/`（例如以前构建过前端）时，只做命令行投稿、评论、商品挂载可以跳过 `npm`。若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。
 
 ## 登录
 
@@ -135,6 +135,14 @@ server     启动 Web 录制服务，默认 127.0.0.1:19159
 
 全局选项：`-u/--user-cookie`、`-p/--proxy`、`--rust-log`。具体参数以 `biliup <command> --help` 为准。
 
+单独下载一场直播/视频，无需启动服务：
+
+```bash
+biliup download <URL> -o "./video/%Y-%m-%dT%H_%M_%S{title}" --split-time 1h
+```
+
+`--split-size` 与 `--split-time` 可按体积或时长自动分段，`-o` 支持 `{title}` 占位符与 strftime 时间格式。默认下载器 `stream-gears` 无需外部程序；配置 `ffmpeg` 下载器或后处理时需要本机 `ffmpeg`；YouTube、niconico 与未内置的地址则依赖 `yt-dlp` 或 `streamlink`。
+
 ### Web 录制服务
 
 上游的录制 Web UI 仍可用。默认只监听本机；从其他设备访问时必须同时加 `--bind 0.0.0.0 --auth`：
@@ -144,7 +152,7 @@ biliup server --auth
 biliup server --bind 0.0.0.0 --port 19159 --auth
 ```
 
-首次打开会引导设置管理员密码，用户名固定为 `biliup`。绑定非回环地址且未开 `--auth` 会拒绝启动。经 HTTPS 反向代理时再加 `--secure-session-cookie`；直接用 HTTP 远程访问时不要加，否则浏览器会丢弃登录态。
+首次打开会引导设置管理员密码，用户名固定为 `biliup`；启动后请尽快完成初始化，避免被他人抢先占用。绑定非回环地址且未开 `--auth` 会拒绝启动。经 HTTPS 反向代理时再加 `--secure-session-cookie`；直接用 HTTP 远程访问时不要加，否则浏览器会丢弃登录态。
 
 本仓库不再发布 Docker 镜像；如需容器运行，请使用仓库内的
 `docker-compose.yml` 或执行 `docker build -t biliup .` 本地构建。上游镜像
@@ -168,16 +176,18 @@ npx skills add dannywsh/biliup -g -y
 | `crates/biliup-cli` | `biliup` 命令行与 Web API |
 | `crates/danmaku` | 弹幕 |
 | `crates/stream-gears` | Python 绑定 |
-| `app/` | Next.js Web UI |
+| `app/`、`public/` | Next.js Web UI；`npm run build` 产物输出到 `out/` 并由后端内嵌 |
+| `biliup/` | 精简 Python 包：`python3 -m biliup` 入口 |
 
 ```bash
-# 前端
+# 前端（cargo 构建前需要 out/）
 npm i
+npm run build
 npm run dev          # http://localhost:3000
 
 # CLI
 cargo build --release --bin biliup
-cargo test -p biliup-cli -p biliup
+cargo test -p biliup-cli -p biliup -p danmaku
 cargo run -p biliup-cli --bin biliup -- --help
 
 # Python 入口（录制服务）
@@ -190,6 +200,6 @@ python3 -m biliup
 
 ## 上游与许可
 
-基于 [biliup/biliup](https://github.com/biliup/biliup)，许可证为 MIT。直播下载依赖 `streamlink`、`yt-dlp` 等上游能力。
+基于 [biliup/biliup](https://github.com/biliup/biliup)，许可证为 MIT。内置直播平台与弹幕能力见上游 README。
 
 本项目仅供个人学习研究，使用产生的后果由使用者自行承担，并遵守 B 站与版权方规定。
