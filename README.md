@@ -7,28 +7,34 @@
 - 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
-**请使用本仓库构建或发布的 `biliup`。** PyPI 上的 `biliup`、上游 GitHub Release，以及 `uv tool install biliup` 都不包含上述能力。安装后用 `biliup --help` 确认存在 `top-reply`、`goods`；用 `biliup upload --help` 确认存在 `--post-upload-goods`。
+请使用本仓库 [Releases](https://github.com/dannywsh/biliup/releases/latest) 里的 `biliup`。PyPI 的 `biliup`、`uv tool install biliup`、以及上游 [biliup/biliup](https://github.com/biliup/biliup) 的 Release 都没有上述能力。
 
 Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 默认只预览，必须加 `--execute` 才会真正提交。
 
 ## 安装
 
-### 下载 Release
+从 [Releases](https://github.com/dannywsh/biliup/releases/latest) 下载对应平台的 zip，解压后把里面的 `biliup`（Windows 为 `biliup.exe`）放到 `PATH`。
 
-从 [Releases](https://github.com/dannywsh/biliup/releases/latest) 下载对应平台的 `biliup` 二进制，放到 `PATH` 中即可。
+| 平台 | 文件 |
+| --- | --- |
+| macOS Apple Silicon | `biliup-*-aarch64-macos.zip` |
+| macOS Intel | `biliup-*-x86_64-macos.zip` |
+| Linux x86_64 (glibc) | `biliup-*-x86_64-linux.zip` |
+| Linux x86_64 (musl) | `biliup-*-x86_64-linux-musl.zip` |
+| Linux ARM64 | `biliup-*-aarch64-linux.zip` |
+| Linux ARM | `biliup-*-arm-linux.zip` |
+| Windows x64 | `biliup-*-x86_64-windows.zip` |
 
-### 从源码构建
-
-需要 Rust 工具链，以及 Node.js ≥ 18.17（Next.js 14）。`biliup-cli` 通过 `rust-embed` 内嵌前端产物目录 `out/`，干净克隆上必须先构建前端，否则编译会失败：
+zip 解压后是 `biliup-<版本>-<平台>/biliup`。macOS / Linux 示例：
 
 ```bash
-npm i
-npm run build
-cargo build --release -p biliup-cli --bin biliup
-install -m 755 target/release/biliup "$HOME/.local/bin/biliup"
+unzip biliup-*-aarch64-macos.zip
+install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-本机已有 `out/`（例如以前构建过前端）时，只做命令行投稿、评论、商品挂载可以跳过 `npm`。若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。
+若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。装好后确认 `biliup --help` 有 `top-reply`、`goods`，`biliup upload --help` 有 `--post-upload-goods`、`--cover43`。
+
+需要改代码时再从源码构建，见下方「开发」。
 
 ## 登录
 
@@ -165,7 +171,7 @@ biliup server --bind 0.0.0.0 --port 19159 --auth
 npx skills add dannywsh/biliup -g -y
 ```
 
-只安装 `skills/biliup/SKILL.md`，不会把整个 CLI 仓库拷进 skill 目录。CLI 二进制仍按上面的「安装」构建或从 Release 下载。
+只安装 `skills/biliup/SKILL.md`，不会把整个 CLI 仓库拷进 skill 目录。CLI 二进制仍从本仓库 Release 下载。
 
 ## 开发
 

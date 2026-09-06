@@ -7,18 +7,30 @@ description: Use the biliup CLI to log in, upload and download Bilibili videos, 
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods`, `top-reply`, and `goods`. Use the binary built from this source, not a generic release.
+This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
 
 ## Install
 
-Build and install from this repository:
+Download the matching zip from https://github.com/dannywsh/biliup/releases/latest and put `biliup` (Windows: `biliup.exe`) on `PATH`. Do not compile from source unless you are changing the code.
+
+| Platform | Asset |
+| --- | --- |
+| macOS Apple Silicon | `biliup-*-aarch64-macos.zip` |
+| macOS Intel | `biliup-*-x86_64-macos.zip` |
+| Linux x86_64 (glibc) | `biliup-*-x86_64-linux.zip` |
+| Linux x86_64 (musl) | `biliup-*-x86_64-linux-musl.zip` |
+| Linux ARM64 | `biliup-*-aarch64-linux.zip` |
+| Linux ARM | `biliup-*-arm-linux.zip` |
+| Windows x64 | `biliup-*-x86_64-windows.zip` |
+
+The binary is `biliup-<version>-<platform>/biliup` inside the zip.
 
 ```bash
-cargo build --release -p biliup-cli --bin biliup
-install -m 755 target/release/biliup "$HOME/.local/bin/biliup"
+unzip biliup-*-aarch64-macos.zip
+install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-If the workspace root is the parent of this repo, `cd` into `biliup` first. Confirm `biliup --help` lists `top-reply` and `goods`, `biliup upload --help` lists `--post-upload-goods`, and `biliup goods attach --help` lists `--frame-title`. If `$HOME/.local/bin` is not on `PATH`, call the binary by full path.
+If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply` and `goods`, `biliup upload --help` lists `--post-upload-goods` and `--cover43`, and `biliup goods attach --help` lists `--frame-title`.
 
 ## Upload with post-upload goods
 
