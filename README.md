@@ -47,7 +47,8 @@ biliup renew
 biliup upload \
   --submit web \
   --post-upload-goods \
-  --cover /absolute/path/cover.jpg \
+  --cover /absolute/path/cover-16x9.jpg \
+  --cover43 /absolute/path/cover-4x3.jpg \
   --title "视频标题" \
   --tid 65 \
   --tag "标签1,标签2" \
@@ -64,7 +65,7 @@ biliup upload \
 | --- | --- |
 | `--submit` | 投稿接口：`app`（默认）、`web`、`b-cut-android` |
 | `--tid` | 分区，默认 `171` |
-| `--cover` / `--title` / `--tag` / `--desc` | 封面、标题、标签、简介 |
+| `--cover` / `--cover43` / `--title` / `--tag` / `--desc` | 16:9 封面、4:3 首页推荐封面、标题、标签、简介 |
 | `--copyright` | `1` 自制（默认），`2` 转载 |
 | `--dtime` | 定时发布，10 位时间戳，且距提交须大于 4 小时 |
 | `-l/--line` | 上传线路 |

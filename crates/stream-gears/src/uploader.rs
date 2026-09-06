@@ -80,6 +80,8 @@ pub struct StudioPre {
     desc: String,
     dynamic: String,
     cover: String,
+    #[builder(default)]
+    cover43: String,
     dtime: Option<u32>,
     dolby: u8,
     lossless_music: u8,
@@ -117,6 +119,7 @@ pub async fn upload(
         desc,
         dynamic,
         cover,
+        cover43,
         dtime,
         dolby,
         lossless_music,
@@ -152,6 +155,7 @@ pub async fn upload(
         .maybe_dtime(dtime)
         .copyright(copyright)
         .cover(cover)
+        .cover43(cover43)
         .dynamic(dynamic)
         .source(source)
         .tag(tag)
@@ -180,6 +184,18 @@ pub async fn upload(
             .change_context_lazy(|| AppError::Unknown)?;
         println!("{url}");
         studio.cover = url;
+    }
+    if !studio.cover43.is_empty() {
+        let url = bilibili
+            .cover_up(
+                &std::fs::read(&studio.cover43)
+                    .change_context_lazy(|| AppError::Unknown)
+                    .attach_with(|| format!("cover43: {}", studio.cover43))?,
+            )
+            .await
+            .change_context_lazy(|| AppError::Unknown)?;
+        println!("{url}");
+        studio.cover43 = url;
     }
 
     submit_to_bilibili(&bilibili, &studio, submit).await

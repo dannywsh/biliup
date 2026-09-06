@@ -22,13 +22,14 @@ If the workspace root is the parent of this repo, `cd` into `biliup` first. Conf
 
 ## Upload with post-upload goods
 
-For the creator-center option 商业推广 → 视频带货 → 投稿后再添加商品, use `--submit web --post-upload-goods`. The flag generates a random `adorder_id` in the same range as the web page and sets `adorder_type: 2`. Use it only with `--submit web`; APP and Bcut reject it.
+For the creator-center option 商业推广 → 视频带货 → 投稿后再添加商品, use `--submit web --post-upload-goods`. The flag generates a random `adorder_id` in the same range as the web page and sets `adorder_type: 2`. Use it only with `--submit web`; APP and Bcut reject it. Pass `--cover` (16:9) and `--cover43` (4:3 homepage cover) together when both images exist.
 
 ```bash
 biliup upload \
   --submit web \
   --post-upload-goods \
   --cover /absolute/path/cover.jpg \
+  --cover43 /absolute/path/cover-4x3.jpg \
   --title "title" \
   --tid 65 \
   --tag "tag1,tag2" \

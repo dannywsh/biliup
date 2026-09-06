@@ -47,7 +47,7 @@ class FileInfo(NamedTuple):
 class BiliWebAsync:
     def __init__(
             self, principal, data, submit_api=None, copyright=2, postprocessor=None, dtime=None,
-            dynamic='', lines='AUTO', threads=3, tid=122, tags=None, cover_path=None, description='',
+            dynamic='', lines='AUTO', threads=3, tid=122, tags=None, cover_path=None, cover43_path=None, description='',
             dolby=0, hires=0, no_reprint=0, is_only_self=0, charging_pay=0, credits=None,
             user_cookie='cookies.json', copyright_source=None, extra_fields="", video_queue=None
     ):
@@ -71,6 +71,7 @@ class BiliWebAsync:
             self.cover_path = self.data["live_cover_path"]
         else:
             self.cover_path = None
+        self.cover43_path = cover43_path
         self.desc = description
         self.credits = credits
         self.dynamic = dynamic
@@ -115,6 +116,8 @@ class BiliWebAsync:
             videos.delay_time(int(time.time()) + self.dtime)
         if self.cover_path:
             videos.cover = bili.cover_up(self.cover_path).replace('http:', '')
+        if self.cover43_path:
+            videos.cover43 = bili.cover_up(self.cover43_path, crop=False).replace('http:', '')
 
         # 其他参数设置
         videos.extra_fields = self.extra_fields
@@ -751,33 +754,39 @@ class BiliBili:
                 continue
             return ret
 
-    def cover_up(self, img: str):
+    def cover_up(self, img: str, crop: bool = True):
         """
         :param img: img path or stream
+        :param crop: 16:9 封面按 16:10 中心裁切；4:3 封面应传 crop=False
         :return: img URL
         """
         from PIL import Image
         from io import BytesIO
 
-        with Image.open(img) as im:
-            # 宽和高,需要16：10
-            xsize, ysize = im.size
-            if xsize / ysize > 1.6:
-                delta = xsize - ysize * 1.6
-                region = im.crop((delta / 2, 0, xsize - delta / 2, ysize))
-            else:
-                delta = ysize - xsize * 10 / 16
-                region = im.crop((0, delta / 2, xsize, ysize - delta / 2))
-            buffered = BytesIO()
-            region.save(buffered, format=im.format)
+        if crop:
+            with Image.open(img) as im:
+                # 宽和高,需要16：10
+                xsize, ysize = im.size
+                if xsize / ysize > 1.6:
+                    delta = xsize - ysize * 1.6
+                    region = im.crop((delta / 2, 0, xsize - delta / 2, ysize))
+                else:
+                    delta = ysize - xsize * 10 / 16
+                    region = im.crop((0, delta / 2, xsize, ysize - delta / 2))
+                buffered = BytesIO()
+                region.save(buffered, format=im.format)
+                payload = buffered.getvalue()
+                buffered.close()
+        else:
+            with open(img, 'rb') as f:
+                payload = f.read()
         r = self.__session.post(
             url='https://member.bilibili.com/x/vu/web/cover/up',
             data={
-                'cover': b'data:image/jpeg;base64,' + (base64.b64encode(buffered.getvalue())),
+                'cover': b'data:image/jpeg;base64,' + (base64.b64encode(payload)),
                 'csrf': self.__bili_jct
             }, timeout=30
         )
-        buffered.close()
         res = r.json()
         if res.get('data') is None:
             raise RuntimeError(f"cover upload failed: {_safe_response_status(res)}")
@@ -813,12 +822,14 @@ class BiliBili:
 @dataclass
 class Data:
     """
-    cover: 封面图片，可由recovers方法得到视频的帧截图
+    cover: 16:9 封面图片，可由recovers方法得到视频的帧截图
+    cover43: 4:3 封面（首页推荐）
     """
     copyright: int = 2
     source: str = ''
     tid: int = 21
     cover: str = ''
+    cover43: str = ''
     title: str = ''
     desc_format_id: int = 0
     desc: str = ''

@@ -303,7 +303,7 @@ fn login_by_web_qrcode(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (video_path, cookie_file, title, tid=171, tag="".to_string(), copyright=2, source="".to_string(), desc="".to_string(), dynamic="".to_string(), cover="".to_string(), dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=false, up_selection_reply=false, up_close_danmu=false, limit=3, desc_v2=vec![], dtime=None, line=None, extra_fields="".to_string(), submit=None, proxy=None))]
+#[pyo3(signature = (video_path, cookie_file, title, tid=171, tag="".to_string(), copyright=2, source="".to_string(), desc="".to_string(), dynamic="".to_string(), cover="".to_string(), dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=false, up_selection_reply=false, up_close_danmu=false, limit=3, desc_v2=vec![], dtime=None, line=None, extra_fields="".to_string(), submit=None, proxy=None, cover43="".to_string()))]
 fn upload(
     py: Python<'_>,
     video_path: Vec<PathBuf>,
@@ -330,6 +330,7 @@ fn upload(
     extra_fields: Option<String>,
     submit: Option<String>,
     proxy: Option<String>,
+    cover43: String,
 ) -> PyResult<()> {
     py.detach(|| {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -371,6 +372,7 @@ fn upload(
                 .desc(desc)
                 .dynamic(dynamic)
                 .cover(cover)
+                .cover43(cover43)
                 .maybe_dtime(dtime)
                 .dolby(dolby)
                 .lossless_music(lossless_music)

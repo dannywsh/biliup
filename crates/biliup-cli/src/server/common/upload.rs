@@ -400,13 +400,19 @@ pub(crate) async fn build_studio(
                 .unwrap_or_default(), // 处理额外字段
         )
         .build();
-    // 处理封面上传
+    // 处理封面上传（16:9 主封面 + 可选 4:3 首页推荐封面）
     if !studio.cover.is_empty()
         && let Ok(c) = &std::fs::read(&studio.cover).inspect_err(|e| error!(e=?e))
         && let Ok(url) = bilibili.cover_up(c).await.inspect_err(|e| error!(e=?e))
     {
         studio.cover = url;
-    };
+    }
+    if !studio.cover43.is_empty()
+        && let Ok(c) = &std::fs::read(&studio.cover43).inspect_err(|e| error!(e=?e))
+        && let Ok(url) = bilibili.cover_up(c).await.inspect_err(|e| error!(e=?e))
+    {
+        studio.cover43 = url;
+    }
 
     Ok(studio)
 }

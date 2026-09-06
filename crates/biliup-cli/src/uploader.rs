@@ -492,20 +492,25 @@ async fn login_by_cookies(user_cookie: PathBuf, proxy: Option<&str>) -> AppResul
     })
 }
 
+async fn upload_local_cover(bili: &BiliBili, path: &str) -> AppResult<String> {
+    let expanded = shellexpand::tilde(path);
+    let cover_path = PathBuf::from(expanded.as_ref());
+    let url =
+        bili.cover_up(&std::fs::read(&cover_path).change_context_lazy(|| {
+            AppError::Custom(format!("cover: {}", cover_path.display()))
+        })?)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    info!("{url}");
+    Ok(url)
+}
+
 pub async fn cover_up(studio: &mut Studio, bili: &BiliBili) -> AppResult<()> {
     if !studio.cover.is_empty() {
-        // 扩展路径中的 ~ 为用户主目录
-        let expanded = shellexpand::tilde(&studio.cover);
-        let cover_path = PathBuf::from(expanded.as_ref());
-
-        let url = bili
-            .cover_up(&std::fs::read(&cover_path).change_context_lazy(|| {
-                AppError::Custom(format!("cover: {}", cover_path.display()))
-            })?)
-            .await
-            .change_context_lazy(|| AppError::Unknown)?;
-        info!("{url}");
-        studio.cover = url;
+        studio.cover = upload_local_cover(bili, &studio.cover).await?;
+    }
+    if !studio.cover43.is_empty() {
+        studio.cover43 = upload_local_cover(bili, &studio.cover43).await?;
     }
     Ok(())
 }

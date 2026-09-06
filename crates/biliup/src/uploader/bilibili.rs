@@ -33,10 +33,19 @@ pub struct Studio {
     #[builder(default = 171)]
     pub tid: u16,
 
-    /// 视频封面
+    /// 视频封面（16:9）
     #[cfg_attr(feature = "cli", clap(long, default_value_t))]
     #[serde(default)]
     pub cover: String,
+
+    /// 4:3 封面（首页推荐）
+    #[cfg_attr(
+        feature = "cli",
+        clap(long = "cover43", alias = "cover-43", default_value_t)
+    )]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[builder(default)]
+    pub cover43: String,
 
     /// 视频标题
     #[cfg_attr(feature = "cli", clap(long, default_value_t))]
@@ -479,7 +488,9 @@ fn redact_secret_preview(text: &str) -> String {
         let patterns = [format!("{key}="), format!("\"{key}\":")];
         for needle in patterns {
             let mut search_from = 0;
-            while let Some(pos) = out[search_from..].to_ascii_lowercase().find(&needle.to_ascii_lowercase())
+            while let Some(pos) = out[search_from..]
+                .to_ascii_lowercase()
+                .find(&needle.to_ascii_lowercase())
             {
                 let value_start = search_from + pos + needle.len();
                 let rest = &out[value_start..];
@@ -848,10 +859,7 @@ impl BiliBili {
         let payload = Self::json_from_response(response).await?;
         let code = payload.get("code").and_then(Value::as_i64).unwrap_or(-1);
         if code != 0 {
-            let message = payload
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let message = payload.get("message").and_then(Value::as_str).unwrap_or("");
             return Err(Kind::Custom(format!(
                 "公开稿件接口失败：code={code} message={message}"
             )));
@@ -1249,6 +1257,62 @@ mod archive_tests {
         assert!(payload.get("adorder_id").is_none());
         assert!(payload.get("adorder_type").is_none());
         assert!(payload.get("post_upload_goods").is_none());
+    }
+
+    #[test]
+    fn web_payload_includes_cover43_when_set() {
+        let mut studio = studio(false);
+        studio.cover = "https://i0.hdslb.com/bfs/archive/cover16.jpg".into();
+        studio.cover43 = "https://i0.hdslb.com/bfs/archive/cover43.jpg".into();
+        let payload = build_web_payload(&studio, 1).unwrap();
+        assert_eq!(
+            payload["cover"],
+            json!("https://i0.hdslb.com/bfs/archive/cover16.jpg")
+        );
+        assert_eq!(
+            payload["cover43"],
+            json!("https://i0.hdslb.com/bfs/archive/cover43.jpg")
+        );
+    }
+
+    #[test]
+    fn web_payload_omits_empty_cover43() {
+        let payload = build_web_payload(&studio(false), 1).unwrap();
+        assert!(payload.get("cover43").is_none());
+    }
+
+    #[test]
+    fn extra_fields_can_supply_cover43() {
+        let mut studio = studio(false);
+        studio.extra_fields = Some(
+            [(
+                "cover43".to_string(),
+                json!("https://i0.hdslb.com/bfs/archive/extra43.jpg"),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let payload = build_web_payload(&studio, 1).unwrap();
+        assert_eq!(
+            payload["cover43"],
+            json!("https://i0.hdslb.com/bfs/archive/extra43.jpg")
+        );
+    }
+
+    #[test]
+    fn studio_deserializes_cover43_from_archive() {
+        let studio: Studio = serde_json::from_value(json!({
+            "tid": 65,
+            "title": "fixture",
+            "cover": "https://i0.hdslb.com/bfs/archive/cover16.jpg",
+            "cover43": "https://i0.hdslb.com/bfs/archive/cover43.jpg"
+        }))
+        .unwrap();
+        assert_eq!(studio.cover, "https://i0.hdslb.com/bfs/archive/cover16.jpg");
+        assert_eq!(
+            studio.cover43,
+            "https://i0.hdslb.com/bfs/archive/cover43.jpg"
+        );
     }
 
     #[test]

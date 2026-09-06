@@ -156,7 +156,8 @@ def upload(video_path: List[str],
            line: Optional[UploadLine],
            extra_fields: Optional[str],
            submit: Optional[str],
-           proxy: Optional[str]) -> None:
+           proxy: Optional[str],
+           cover43: str = "") -> None:
 
     """
     上传视频稿件
@@ -170,7 +171,7 @@ def upload(video_path: List[str],
     :param str source: 转载来源
     :param str desc: 视频简介
     :param str dynamic: 空间动态
-    :param str cover: 视频封面
+    :param str cover: 视频封面（16:9）
     :param int dolby: 是否开启杜比音效, 0-关闭 1-开启
     :param int lossless_music: 是否开启Hi-Res, 0-关闭 1-开启
     :param int no_reprint: 是否禁止转载, 0-允许 1-禁止
@@ -182,4 +183,5 @@ def upload(video_path: List[str],
     :param Optional[ExtraFields] line: 上传额外参数
     :param Optional[str] submit: 提交接口, 可选值: BCutAndroid, App（默认）
     :param Optional[str] proxy: 代理
+    :param str cover43: 4:3 封面（首页推荐），空表示不设置
     """
