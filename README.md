@@ -106,10 +106,15 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
 - 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
 
-`goods search` 和 `goods attach` 仅接受完整的 `https://mall.bilibili.com/` 商品链接或纯数字 `itemId`。纯数字 `itemId` 会自动拼成会员购商品链接，并调用商品链接识别接口精确查验；不再按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 中的 `id` 就是票务 `itemId`，不要把整条 `show.bilibili.com` URL 传给 CLI。稿件可用 av 或 bv，命令内部会转成 AID。已在选品车的商品会跳过加入步骤。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
+`goods search` 接受会员购链接、票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 或纯数字 `itemId`。纯数字会先按会员购商品识别；会员购识别失败时会读取公开详情接口，票务页则直接读取票务详情。命令不按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。
+
+搜索结果除挂载所需的 `itemId`、`goodsName`、`sourceType`、价格和跳转链接外，还会返回 `detail` 及其摘要字段：会员购包含品牌、分类、属性、图片和摘要；票务包含城市、场馆、地址、演出日期、票价、商家、图片、简介和摘要。公开详情接口异常时，会员购仍会返回原有识别结果。票务详情用于检索展示，不能据此直接执行会员购挂载。
+
+`goods attach` 仍只适用于可挂载的会员购商品。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
 ```bash
 biliup goods search 12345678
+biliup goods search 'https://show.bilibili.com/platform/detail.html?id=1004629'
 biliup goods attach BV1xxx --query 12345678 --expected-item-id 12345678
 biliup goods attach BV1xxx \
   --query 12345678 \

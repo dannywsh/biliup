@@ -75,7 +75,7 @@ This is not a comment; use `reply` / `top-reply` for 带货评论. If the video 
 
 ### Identify the product
 
-`goods search` and `goods attach --query` accept a full `https://mall.bilibili.com/` product URL or a numeric `itemId`. They do not accept a product-name keyword. For a ticketing page `https://show.bilibili.com/platform/detail.html?id=<数字>`, the `id` query parameter is the ticketing `itemId` (for example `...?id=1004629` → `1004629`). Do not pass the `show.bilibili.com` URL to the CLI.
+`goods search` accepts a full `https://mall.bilibili.com/` product URL, a ticketing page `https://show.bilibili.com/platform/detail.html?id=<数字>`, or a numeric `itemId`. It returns richer public detail fields: Membership Shop brand/category/attributes/images, or ticketing city/venue/address/dates/price/merchant/images/description. It does not accept a product-name keyword. `goods attach --query` remains for mountable Membership Shop goods only. For a ticketing page, the `id` query parameter is the ticketing `itemId` (for example `...?id=1004629` → `1004629`).
 
 Numeric `itemId` is converted to a Membership Shop URL and checked exactly. Do not fall back to title search or UP 主小店 search. If the user only has a product name, ask for an itemId, mall URL, or ticketing page that contains `id`.
 
@@ -86,7 +86,7 @@ biliup goods search 12345678
 biliup goods search 'https://mall.bilibili.com/detail.html?itemsId=12345678'
 
 # 票务页 https://show.bilibili.com/platform/detail.html?id=1004629
-biliup goods search 1004629
+biliup goods search 'https://show.bilibili.com/platform/detail.html?id=1004629'
 ```
 
 Success output includes `itemId`, `goodsName`, `sourceType` (`5` for Membership Shop alliance), and `jumpUrl` (`mall.bilibili.com`). On identification failure, report the API output and ask the user to verify the URL or itemId.

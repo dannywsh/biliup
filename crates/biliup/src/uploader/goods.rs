@@ -1,12 +1,15 @@
 use super::bilibili::{BiliBili, Vid};
 use crate::error::{Kind, Result};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 const DISTINGUISH_URLS_URL: &str =
     "https://mall.bilibili.com/mall-cbp/web/cmc/goods/distinguish/urls";
 const GOODS_DETAIL_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/id";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
+const MALL_PUBLIC_INFO_URL: &str = "https://mall.bilibili.com/mall-c-search/items/info";
+const TICKET_PUBLIC_INFO_URL: &str = "https://show.bilibili.com/api/ticket/project/getV2";
 const GOODS_SEARCH_PAGE: u32 = 1;
 const ITEM_URL_TEMPLATE: &str = "https://mall.bilibili.com/detail.html?from=card_item&jumpLinkType=0&loadingShow=1&noTitleBar=1#goFrom=na&itemsId={item_id}&noReffer=true";
 /// 视频框下商品卡展示位。
@@ -85,6 +88,7 @@ impl GoodsAttachPlan {
 ///
 /// 输入：完整商品 JSON。返回：含 `itemId`、名称、价格和跳转链接的精简对象。
 pub fn summarize_goods_item(item: &Value, index: usize) -> Value {
+    let detail = item.get("detail").cloned().unwrap_or_else(|| json!({}));
     json!({
         "index": index,
         "itemId": item.get("itemId"),
@@ -94,6 +98,20 @@ pub fn summarize_goods_item(item: &Value, index: usize) -> Value {
         "commissionFee": item.get("commissionFee"),
         "inSelectionCarState": item.get("inSelectionCarState"),
         "jumpUrl": item.get("jumpUrl"),
+        "kind": detail.get("kind"),
+        "brand": detail.get("brand"),
+        "category": detail.get("category"),
+        "city": detail.get("city"),
+        "venue": detail.get("venue"),
+        "address": detail.get("address"),
+        "dates": detail.get("dates"),
+        "merchant": detail.get("merchant"),
+        "priceRange": detail.get("price"),
+        "attrs": detail.get("attrs"),
+        "images": detail.get("images"),
+        "description": detail.get("description"),
+        "summary": detail.get("summary"),
+        "detail": detail,
     })
 }
 
@@ -272,6 +290,246 @@ fn required_string(item: &Value, field: &str) -> Result<String> {
         .ok_or_else(|| Kind::Custom(format!("商品缺少 {field}")))
 }
 
+/// 将会员购或票务 URL 转成详情接口需要的数字 ID。
+/// 输入：用户传入的商品链接或 itemId。返回：`(item_id, is_ticket)`。
+fn parse_public_detail_query(input: &str) -> Result<(String, bool)> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(Kind::Custom("商品链接或 itemId 不能为空".to_string()));
+    }
+    if input.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Ok((input.to_string(), false));
+    }
+    let url = reqwest::Url::parse(input)
+        .map_err(|_| Kind::Custom("商品链接必须是有效 URL 或纯数字 itemId".to_string()))?;
+    let is_ticket = url.host_str() == Some("show.bilibili.com");
+    let is_mall = url.host_str() == Some("mall.bilibili.com");
+    if !is_ticket && !is_mall {
+        return Err(Kind::Custom(
+            "商品链接必须来自 mall.bilibili.com 或 show.bilibili.com".to_string(),
+        ));
+    }
+    let key = if is_ticket { "id" } else { "itemsId" };
+    let from_pairs = |pairs: &str| {
+        url::form_urlencoded::parse(pairs.as_bytes())
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.into_owned())
+    };
+    let item_id = from_pairs(url.query().unwrap_or(""))
+        .or_else(|| from_pairs(url.fragment().unwrap_or("")))
+        .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
+        .ok_or_else(|| Kind::Custom(format!("链接缺少有效的 {key} 参数")))?;
+    Ok((item_id, is_ticket))
+}
+
+/// 将详情字段转换成适合展示的字符串。
+/// 输入：任意 JSON 值。返回：字符串值或 JSON 紧凑表示。
+fn detail_string(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+/// 将图片 URL 规范化为绝对 HTTPS 地址。
+/// 输入：详情接口返回的图片地址。返回：可选的绝对地址。
+fn absolute_image_url(url: &str) -> Option<String> {
+    if url.is_empty() {
+        None
+    } else if url.starts_with("//") {
+        Some(format!("https:{url}"))
+    } else {
+        Some(url.to_string())
+    }
+}
+
+/// 从公开会员购详情响应提取可读商品信息。
+/// 输入：`items/info` 的完整 JSON 和兜底 itemId。返回：标准化详情对象。
+pub fn parse_mall_public_detail(response: &Value, fallback_item_id: &str) -> Option<Value> {
+    let data = response.get("data")?.as_object()?;
+    if response.get("success").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let mut attrs = BTreeMap::new();
+    if let Some(list) = data.get("attrList").and_then(Value::as_array) {
+        for attr in list {
+            let Some(attr) = attr.as_object() else {
+                continue;
+            };
+            let Some(name) = attr.get("attrName").and_then(Value::as_str) else {
+                continue;
+            };
+            let value = attr.get("attrValue").map(detail_string).unwrap_or_default();
+            attrs.insert(name.to_string(), value);
+        }
+    }
+    let images = data
+        .get("img")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| absolute_image_url(item.as_str()?))
+                .take(8)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let item_id = data
+        .get("itemsId")
+        .map(detail_string)
+        .unwrap_or_else(|| fallback_item_id.to_string());
+    let price = data
+        .get("price")
+        .or_else(|| data.get("maxPrice"))
+        .map(detail_string)
+        .unwrap_or_default();
+    let mut summary = vec![data.get("name").map(detail_string).unwrap_or_default()];
+    if let Some(brand) = data
+        .get("brandName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        summary.push(format!("品牌{brand}"));
+    }
+    if !price.is_empty() {
+        summary.push(format!("售价{price}元"));
+    }
+    summary.extend(attrs.iter().map(|(key, value)| format!("{key}{value}")));
+    Some(json!({
+        "kind": "mall", "itemsId": item_id, "name": data.get("name"),
+        "brand": data.get("brandName").cloned().unwrap_or(Value::Null),
+        "category": data.get("cateLogicNameList").cloned().unwrap_or_else(|| json!([])),
+        "price": if price.is_empty() { String::new() } else { format!("{price}元") },
+        "attrs": attrs, "images": images,
+        "url": format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
+        "summary": summary.into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("，"),
+    }))
+}
+
+/// 从公开票务详情响应提取演出、场馆、日期和票价信息。
+/// 输入：`getV2` 的完整 JSON 和兜底 itemId。返回：标准化详情对象。
+pub fn parse_ticket_public_detail(response: &Value, fallback_item_id: &str) -> Option<Value> {
+    let data = response.get("data")?.as_object()?;
+    if response.get("success").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let venue = data.get("venue_info").and_then(Value::as_object);
+    let city = venue
+        .and_then(|value| {
+            value
+                .get("city_name")
+                .or_else(|| value.get("province_name"))
+        })
+        .map(detail_string)
+        .unwrap_or_default();
+    let place = venue
+        .and_then(|value| value.get("name"))
+        .map(detail_string)
+        .unwrap_or_default();
+    let address = venue
+        .and_then(|value| value.get("address_detail"))
+        .map(detail_string)
+        .unwrap_or_default();
+    let dates = format_timestamp_range(data.get("start_time"), data.get("end_time"));
+    let low = data.get("price_low").map(detail_string).unwrap_or_default();
+    let high = data
+        .get("price_high")
+        .map(detail_string)
+        .unwrap_or_default();
+    let price = format_fen_price(&low, &high);
+    let item_id = data
+        .get("id")
+        .map(detail_string)
+        .unwrap_or_else(|| fallback_item_id.to_string());
+    let images = data
+        .get("cover")
+        .and_then(Value::as_str)
+        .and_then(absolute_image_url)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let summary = [
+        data.get("name").map(detail_string).unwrap_or_default(),
+        city.clone(),
+        place.clone(),
+        dates.clone(),
+        if price.is_empty() {
+            String::new()
+        } else {
+            format!("票价{price}")
+        },
+    ]
+    .into_iter()
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join("，");
+    Some(json!({
+        "kind": "ticket", "itemsId": item_id, "name": data.get("name"),
+        "city": city, "venue": place, "address": address, "dates": dates, "price": price,
+        "merchant": data.get("merchant").and_then(|value| value.get("company")).cloned().unwrap_or(Value::Null),
+        "images": images, "url": format!("https://show.bilibili.com/platform/detail.html?id={item_id}"),
+        "summary": summary, "description": strip_html(data.get("description").and_then(Value::as_str).unwrap_or("")),
+    }))
+}
+
+/// 将分转换成人民币价格文本，支持单价或最低/最高价区间。
+/// 输入：最低价和最高价字符串。返回：如 `99-299元` 的文本。
+fn format_fen_price(low: &str, high: &str) -> String {
+    let yuan = |value: &str| {
+        value
+            .parse::<i64>()
+            .map(|fen| {
+                if fen % 100 == 0 {
+                    format!("{}元", fen / 100)
+                } else {
+                    format!("{}.{:02}元", fen / 100, fen.abs() % 100)
+                }
+            })
+            .unwrap_or_else(|_| value.to_string())
+    };
+    if low.is_empty() {
+        return yuan(high);
+    }
+    if high.is_empty() || low == high {
+        return yuan(low);
+    }
+    format!("{}-{}", yuan(low).trim_end_matches('元'), yuan(high))
+}
+
+/// 将 Unix 时间戳格式化为演出日期范围。
+/// 输入：开始和结束时间戳。返回：`YYYY-MM-DD` 或日期区间。
+fn format_timestamp_range(start: Option<&Value>, end: Option<&Value>) -> String {
+    let format_one = |value: &Value| {
+        value
+            .as_i64()
+            .and_then(|stamp| chrono::DateTime::from_timestamp(stamp, 0))
+            .map(|date| date.format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
+    };
+    let start = start.map(format_one).unwrap_or_default();
+    let end = end.map(format_one).unwrap_or_default();
+    if start.is_empty() {
+        end
+    } else if end.is_empty() || start == end {
+        start
+    } else {
+        format!("{start} ~ {end}")
+    }
+}
+
+/// 去除票务简介中的 HTML 标签并限制输出长度。
+/// 输入：原始 HTML 文本。返回：纯文本简介。
+fn strip_html(raw: &str) -> String {
+    regex::Regex::new(r"<[^>]+>")
+        .map(|regex| regex.replace_all(raw, " ").to_string())
+        .unwrap_or_else(|_| raw.to_string())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(800)
+        .collect()
+}
+
 /// 将用户输入规范化为会员购识别接口所需的商品链接。
 ///
 /// 输入：完整的 `mall.bilibili.com` 商品链接，或纯数字 `itemId`。
@@ -389,12 +647,8 @@ impl BiliBili {
     /// 返回：`code=0` 的完整响应；失败时带上接口 `message`。
     async fn mall_json_post(&self, url: &str, body: &Value) -> Result<Value> {
         let csrf = self.get_csrf()?;
-        let request = self.with_mall_headers(
-            self.client
-                .post(url)
-                .query(&[("csrf", csrf)])
-                .json(body),
-        )?;
+        let request =
+            self.with_mall_headers(self.client.post(url).query(&[("csrf", csrf)]).json(body))?;
         self.send_mall_request(request).await
     }
 
@@ -404,6 +658,63 @@ impl BiliBili {
     async fn mall_json_get(&self, url: &str, query: &[(&str, &str)]) -> Result<Value> {
         let request = self.with_mall_headers(self.client.get(url).query(query))?;
         self.send_mall_request(request).await
+    }
+
+    /// 请求无需登录即可读取的会员购/票务公开详情接口。
+    /// 输入：详情接口地址、查询参数和来源页。返回：完整 JSON 响应。
+    async fn public_json_get(
+        &self,
+        url: &str,
+        query: &[(&str, &str)],
+        referer: &str,
+    ) -> Result<Value> {
+        let response = self.client.get(url)
+            .query(query)
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36")
+            .header("Referer", referer)
+            .header("Accept", "application/json,text/plain,*/*")
+            .send().await?;
+        Self::json_from_response(response).await
+    }
+
+    /// 将公开详情附加到识别结果，保留原商品字段以兼容挂载流程。
+    /// 输入：识别结果和详情查询 ID。返回：包含 `detail` 的商品对象。
+    async fn enrich_goods_item(&self, mut item: Value, item_id: &str) -> Value {
+        let detail = self
+            .public_json_get(
+                MALL_PUBLIC_INFO_URL,
+                &[("itemsId", item_id)],
+                &format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
+            )
+            .await
+            .ok()
+            .and_then(|payload| parse_mall_public_detail(&payload, item_id));
+        if let Some(detail) = detail {
+            if let Some(object) = item.as_object_mut() {
+                object.insert("detail".to_string(), detail);
+            }
+        }
+        item
+    }
+
+    /// 直接构造票务商品搜索结果，并附加公开票务详情。
+    /// 输入：票务 itemId。返回：可供 `goods search` 展示的商品对象。
+    async fn search_ticket_goods(&self, item_id: &str) -> Result<Value> {
+        let payload = self
+            .public_json_get(
+                TICKET_PUBLIC_INFO_URL,
+                &[("id", item_id)],
+                &format!("https://show.bilibili.com/platform/detail.html?id={item_id}"),
+            )
+            .await?;
+        let detail = parse_ticket_public_detail(&payload, item_id)
+            .ok_or_else(|| Kind::Custom("票务详情接口未返回有效项目".to_string()))?;
+        let name = detail.get("name").cloned().unwrap_or(Value::Null);
+        let price = detail.get("price").cloned().unwrap_or(Value::Null);
+        Ok(json!({
+            "itemId": detail.get("itemsId"), "goodsName": name, "price": price,
+            "jumpUrl": detail.get("url"), "sourceType": "ticket", "detail": detail,
+        }))
     }
 
     /// 按商品 ID 拉取详情主图。
@@ -420,14 +731,44 @@ impl BiliBili {
     ///
     /// 输入：完整商品链接或纯数字 `itemId`。返回：链接识别出的商品列表，不进行标题模糊匹配。
     pub async fn search_goods(&self, query: &str) -> Result<Vec<Value>> {
+        let numeric_query = query.trim().bytes().all(|byte| byte.is_ascii_digit());
+        let (item_id, is_ticket) = parse_public_detail_query(query)?;
+        if is_ticket {
+            return Ok(vec![self.search_ticket_goods(&item_id).await?]);
+        }
         let item_url = normalize_goods_url(query)?;
-        let response = self
-            .mall_json_post(
-                DISTINGUISH_URLS_URL,
-                &json!({"itemUrls": item_url}),
+        if let Ok(response) = self
+            .mall_json_post(DISTINGUISH_URLS_URL, &json!({"itemUrls": item_url}))
+            .await
+        {
+            if let Ok(items) = distinguish_goods_items(&response) {
+                let mut enriched = Vec::with_capacity(items.len());
+                for item in items {
+                    enriched.push(self.enrich_goods_item(item, &item_id).await);
+                }
+                return Ok(enriched);
+            }
+        }
+        let mall_payload = self
+            .public_json_get(
+                MALL_PUBLIC_INFO_URL,
+                &[("itemsId", &item_id)],
+                &format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
             )
-            .await?;
-        distinguish_goods_items(&response)
+            .await;
+        if let Ok(payload) = mall_payload {
+            if let Some(detail) = parse_mall_public_detail(&payload, &item_id) {
+                return Ok(vec![json!({
+                    "itemId": detail.get("itemsId"), "goodsName": detail.get("name"),
+                    "price": detail.get("price"), "jumpUrl": detail.get("url"),
+                    "detail": detail,
+                })]);
+            }
+        }
+        if numeric_query {
+            return Ok(vec![self.search_ticket_goods(&item_id).await?]);
+        }
+        Err(Kind::Custom("会员购详情接口未返回有效商品".to_string()))
     }
 
     /// 预览商品挂载：搜索、校验商品、拉取主图并构造请求体，不发起写操作。
@@ -508,8 +849,8 @@ mod tests {
         DEFAULT_CARD_PLACE_TYPE, GoodsAttachPlan, UNDER_VIDEO_PLACE_TYPE,
         UNDER_VIDEO_TITLE_MAX_CHARS, build_attach_payload, build_cart_payload,
         collect_failed_res_codes, distinguish_goods_items, normalize_goods_url,
-        parse_main_image_url, summarize_goods_item, truncate_chars, under_video_title,
-        validate_expected_item_id,
+        parse_main_image_url, parse_mall_public_detail, parse_ticket_public_detail,
+        summarize_goods_item, truncate_chars, under_video_title, validate_expected_item_id,
     };
     use serde_json::json;
 
@@ -532,6 +873,52 @@ mod tests {
         assert!(url.contains("itemsId=12345678"));
         assert!(normalize_goods_url("示例商品").is_err());
         assert!(normalize_goods_url("https://example.com/item/12345678").is_err());
+    }
+
+    #[test]
+    fn public_mall_detail_contains_product_information() {
+        let detail = parse_mall_public_detail(
+            &json!({
+                "success": true,
+                "data": {
+                    "itemsId": 12345678,
+                    "name": "示例周边",
+                    "brandName": "示例品牌",
+                    "cateLogicNameList": ["手办"],
+                    "price": 199,
+                    "attrList": [{"attrName": "材质", "attrValue": ["PVC"]}],
+                    "img": ["//example.com/a.png"]
+                }
+            }),
+            "12345678",
+        )
+        .unwrap();
+        assert_eq!(detail["kind"], json!("mall"));
+        assert_eq!(detail["brand"], json!("示例品牌"));
+        assert_eq!(detail["attrs"]["材质"], json!("[\"PVC\"]"));
+        assert_eq!(detail["images"][0], json!("https://example.com/a.png"));
+    }
+
+    #[test]
+    fn public_ticket_detail_contains_event_information() {
+        let detail = parse_ticket_public_detail(&json!({
+            "success": true,
+            "data": {
+                "id": 1004629,
+                "name": "示例演出",
+                "start_time": 1760000000,
+                "end_time": 1760086400,
+                "price_low": 9900,
+                "price_high": 29900,
+                "cover": "//example.com/cover.jpg",
+                "venue_info": {"city_name": "上海", "name": "示例剧院", "address_detail": "示例路 1 号"},
+                "merchant": {"company": "示例主办方"}
+            }
+        }), "1004629").unwrap();
+        assert_eq!(detail["kind"], json!("ticket"));
+        assert_eq!(detail["city"], json!("上海"));
+        assert_eq!(detail["venue"], json!("示例剧院"));
+        assert_eq!(detail["price"], json!("99-299元"));
     }
 
     #[test]
