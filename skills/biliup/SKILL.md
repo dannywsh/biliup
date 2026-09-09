@@ -93,12 +93,12 @@ Success output includes `itemId`, `goodsName`, `sourceType` (`5` for Membership 
 
 ### Review state before attach
 
-After publish returns BV/AV, run `biliup show <vid>` and record `archive.state` / `archive.state_desc`, then dry-run. In-review drafts may be dry-run. If product, placements, and copy are correct, `--execute` is allowed. Poll every **3 minutes** only when the attach API refuses because of review state.
+After publish returns BV/AV, run `biliup show <vid>` and record `archive.state` / `archive.state_desc`, then dry-run. The verified in-review state `archive.state == -30` can be attached immediately; do **not** wait for review to pass. If product, placements, and copy are correct, run `--execute` directly. Poll every **3 minutes** only if the attach API explicitly refuses because of review state.
 
 | `archive.state` | meaning | action |
 |---|---|---|
 | `0` | passed | attach (dry-run, then `--execute`) |
-| `-30` | in review | dry-run is ok; success of `--execute` completes the job; if the API refuses, wait 180s and re-check |
+| `-30` | in review | verified attachable; dry-run, then `--execute` immediately; only if the API refuses, wait 180s and re-check |
 | `-2` | rejected | stop attach; report `archive.reject_reason` |
 
 For other non-`0` states, follow the dry-run and execute API response. If the API requires waiting, `sleep 180` between checks; do not poll faster.
@@ -127,9 +127,9 @@ On dry-run, check `attach.cmcInfos`: first item `cmcPlaceType=1`, `title` ≤ 12
 ### Attach workflow
 
 1. `goods search` with mall URL or itemId; confirm identity.
-2. `biliup show <vid>` for review state; dry-run is allowed during review; poll every 3 minutes only if the API refuses attach.
+2. `biliup show <vid>` for review state; both passed (`0`) and verified in-review (`-30`) states may proceed to attach. Do not wait for `-30` to become `0`.
 3. Write `--frame-title` ≤ 12 characters; confirm product, video, and copy with the user.
-4. `goods attach` without `--execute` to preview; then `--execute`. Items already in the selection cart skip the add-to-cart step.
+4. `goods attach` without `--execute` to preview; then `--execute`, including when `archive.state == -30`. Items already in the selection cart skip the add-to-cart step.
 5. Require `code=0` and each `resCode=0`. `finalResult.jumpUrl` is the product URL for later forms. On failure, report the API output and re-read product/archive state; do not guess-retry.
 
 ```bash

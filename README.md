@@ -112,6 +112,8 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 `goods attach` 仍只适用于可挂载的会员购商品。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
+稿件审核中（`archive.state=-30`）已验证可以直接挂载商品，不需要等待审核通过；先 dry-run 核对商品和展示位，再加 `--execute` 提交。只有挂载接口明确因审核状态拒绝时，才每 3 分钟重新检查一次。审核拒绝（`archive.state=-2`）则停止挂载并处理 `reject_reason`。
+
 ```bash
 biliup goods search 12345678
 biliup goods search 'https://show.bilibili.com/platform/detail.html?id=1004629'
