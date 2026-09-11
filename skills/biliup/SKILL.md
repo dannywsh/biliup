@@ -73,6 +73,15 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 This is not a comment; use `reply` / `top-reply` for 带货评论. If the video was just uploaded and goods will be attached after review, the upload must use `--submit web --post-upload-goods`.
 
+For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array; maximum 20 products. Do not attach each product separately, or multiple comments will be created. Use the user-provided `--prefix-text` only for the first product and append `\\n` when non-empty; leave it empty when omitted. Set `postfixText` to `\\n` for non-final products and empty for the final product; keep `anotherName` empty by default.
+
+```bash
+biliup goods attach BVxxxx \
+  --query 13667449 --query 13667450 \
+  --expected-item-id 13667449 --expected-item-id 13667450 \
+  --prefix-text '快来看看～' --execute
+```
+
 ### Identify the product
 
 `goods search` accepts a full `https://mall.bilibili.com/` product URL, a ticketing page `https://show.bilibili.com/platform/detail.html?id=<数字>`, or a numeric `itemId`. It returns richer public detail fields: Membership Shop brand/category/attributes/images, or ticketing city/venue/address/dates/price/merchant/images/description. It does not accept a product-name keyword. `goods attach --query` remains for mountable Membership Shop goods only. For a ticketing page, the `id` query parameter is the ticketing `itemId` (for example `...?id=1004629` → `1004629`).

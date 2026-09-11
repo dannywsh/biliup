@@ -5,7 +5,9 @@ use biliup::client::StatelessClient;
 use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
-use biliup::uploader::goods::{GoodsAttachOptions, summarize_goods_item};
+use biliup::uploader::goods::{
+    GoodsAttachOptions, build_cmc_task_payload, summarize_goods_item,
+};
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, credential, line, load_config};
@@ -374,61 +376,133 @@ pub async fn goods_search(
 pub async fn goods_attach(
     user_cookie: PathBuf,
     vid: Vid,
-    query: String,
+    queries: Vec<String>,
     index: usize,
     place_type: u32,
     prefix_text: String,
     postfix_text: String,
     another_name: String,
     frame_title: String,
-    expected_item_id: Option<String>,
+    expected_item_ids: Vec<String>,
     execute: bool,
     proxy: Option<&str>,
 ) -> AppResult<()> {
+    let queries = expand_goods_queries(queries)?;
+    let expected_item_ids = match expected_item_ids.len() {
+        0 => vec![None; queries.len()],
+        1 => vec![Some(expected_item_ids[0].as_str()); queries.len()],
+        count if count == queries.len() => expected_item_ids
+            .iter()
+            .map(|item_id| Some(item_id.as_str()))
+            .collect(),
+        count => {
+            return Err(AppError::Custom(format!(
+                "--expected-item-id 需要传 1 个或与商品数量相同（当前商品 {} 个，ID {} 个）",
+                queries.len(),
+                count
+            ))
+            .into());
+        }
+    };
     let bilibili = login_by_cookies(user_cookie, proxy).await?;
-    let plan = bilibili
-        .plan_goods_attach(GoodsAttachOptions {
-            query: &query,
-            vid: &vid,
-            index,
-            place_type,
-            prefix_text: &prefix_text,
-            postfix_text: &postfix_text,
-            another_name: &another_name,
-            frame_title: Some(frame_title.as_str()).filter(|title| !title.trim().is_empty()),
-            expected_item_id: expected_item_id.as_deref(),
-        })
-        .await
-        .change_context_lazy(|| AppError::Unknown)?;
+    let mut plans = Vec::with_capacity(queries.len());
+    for (query, expected_item_id) in queries.iter().zip(expected_item_ids) {
+        let plan = bilibili
+            .plan_goods_attach(GoodsAttachOptions {
+                query,
+                vid: &vid,
+                index,
+                place_type,
+                prefix_text: &prefix_text,
+                postfix_text: &postfix_text,
+                another_name: &another_name,
+                frame_title: Some(frame_title.as_str()).filter(|title| !title.trim().is_empty()),
+                expected_item_id,
+            })
+            .await
+            .change_context_lazy(|| AppError::Unknown)?;
+        plans.push(plan);
+    }
+    let attach_preview = if plans.len() > 1 {
+        let aid = plans[0]
+            .attach_payload
+            .pointer("/videoInfos/0/avId")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| AppError::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
+        build_cmc_task_payload(&plans, aid).change_context_lazy(|| AppError::Unknown)?
+    } else {
+        json!(plans.iter().map(|plan| &plan.attach_payload).collect::<Vec<_>>())
+    };
     print_json(&json!({
-        "selectedItem": summarize_goods_item(&plan.item, index),
-        "addToCart": plan.cart_payload,
-        "attach": plan.attach_payload,
+        "selectedItems": plans
+            .iter()
+            .map(|plan| summarize_goods_item(&plan.item, index))
+            .collect::<Vec<_>>(),
+        "addToCart": plans.iter().map(|plan| &plan.cart_payload).collect::<Vec<_>>(),
+        "attach": attach_preview,
     }))?;
     if !execute {
-        println!("dry-run: goods attach {vid}");
+        println!("dry-run: goods attach {vid}，共 {} 个商品", plans.len());
         println!("use --execute to send");
-        print_json(
-            &plan
-                .final_result("preview", json!("not_executed"), json!("not_executed"))
-                .change_context_lazy(|| AppError::Unknown)?,
-        )?;
+        let previews = plans
+            .iter()
+            .map(|plan| {
+                plan.final_result("preview", json!("not_executed"), json!("not_executed"))
+                    .change_context_lazy(|| AppError::Unknown)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        print_json(&json!({ "finalResults": previews }))?;
         return Ok(());
     }
-    if !plan.needs_add_to_cart() {
-        println!("商品已在选品车，跳过加入步骤。");
+    if plans.len() > 1 {
+        let (cart_results, attach_result) = bilibili
+            .execute_cmc_task(&plans)
+            .await
+            .change_context_lazy(|| AppError::Unknown)?;
+        print_json(&json!({
+            "commentGoodsCount": plans.len(),
+            "cartResults": cart_results,
+            "commentAttachResult": attach_result,
+        }))?;
+        return Ok(());
     }
-    let (cart_result, attach_result) = bilibili
-        .execute_goods_attach(&plan)
-        .await
-        .change_context_lazy(|| AppError::Unknown)?;
-    print_json(&cart_result)?;
-    print_json(&attach_result)?;
-    print_json(
-        &plan
-            .final_result("executed", cart_result, attach_result)
-            .change_context_lazy(|| AppError::Unknown)?,
-    )
+    let mut final_results = Vec::with_capacity(plans.len());
+    for plan in &plans {
+        if !plan.needs_add_to_cart() {
+            println!("商品已在选品车，跳过加入步骤。");
+        }
+        let (cart_result, attach_result) = bilibili
+            .execute_goods_attach(plan)
+            .await
+            .change_context_lazy(|| AppError::Unknown)?;
+        final_results.push(
+            plan.final_result("executed", cart_result, attach_result)
+                .change_context_lazy(|| AppError::Unknown)?,
+        );
+    }
+    print_json(&json!({ "finalResults": final_results }))
+}
+
+/// 展开商品参数，支持重复参数、空白分隔和逗号分隔的商品链接。
+///
+/// 输入：命令行收集到的原始商品参数。返回：去除空值后的商品查询列表。
+fn expand_goods_queries(raw_queries: Vec<String>) -> AppResult<Vec<String>> {
+    let queries = raw_queries
+        .into_iter()
+        .flat_map(|query| {
+            query
+                .split(',')
+                .map(str::trim)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|query| !query.is_empty())
+        .collect::<Vec<_>>();
+    if queries.is_empty() {
+        return Err(AppError::Custom("至少需要传入一个商品链接或 itemId".to_string()).into());
+    }
+    Ok(queries)
 }
 
 fn print_json(value: &Value) -> AppResult<()> {
@@ -437,6 +511,18 @@ fn print_json(value: &Value) -> AppResult<()> {
         serde_json::to_string_pretty(value).change_context_lazy(|| AppError::Unknown)?
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod goods_attach_tests {
+    use super::expand_goods_queries;
+
+    #[test]
+    fn expands_repeated_and_comma_separated_queries() {
+        let queries =
+            expand_goods_queries(vec!["100, 200".to_string(), "300".to_string()]).unwrap();
+        assert_eq!(queries, vec!["100", "200", "300"]);
+    }
 }
 
 pub async fn list(

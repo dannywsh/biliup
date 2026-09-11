@@ -236,9 +236,9 @@ pub enum GoodsCommands {
         /// vid为稿件 av 或 bv 号
         vid: Vid,
 
-        /// 商品链接或纯数字 itemId
-        #[arg(short, long)]
-        query: String,
+        /// 商品链接或纯数字 itemId；可重复传入或一次传入多个值
+        #[arg(short, long, num_args = 1..)]
+        query: Vec<String>,
 
         /// 搜索结果下标，默认 0
         #[arg(long, default_value = "0")]
@@ -264,9 +264,9 @@ pub enum GoodsCommands {
         #[arg(long, default_value = "")]
         frame_title: String,
 
-        /// 可选的商品 ID 白名单；与选中搜索结果不一致时停止
-        #[arg(long)]
-        expected_item_id: Option<String>,
+        /// 可选的商品 ID 白名单；传一个值时应用于全部商品，多个值按商品顺序对应
+        #[arg(long, num_args = 1..)]
+        expected_item_id: Vec<String>,
 
         /// 实际写入选品车并挂载视频
         #[arg(long)]
@@ -395,10 +395,10 @@ mod tests {
                     execute: false,
                     index: 0,
                     place_type: 12,
-                    expected_item_id: None,
+                    expected_item_id: ref expected_item_ids,
                     ..
                 }
-            }
+            } if expected_item_ids.is_empty()
         ));
     }
 
@@ -434,7 +434,7 @@ mod tests {
                     ref frame_title,
                     ..
                 }
-            } if expected_item_id.as_deref() == Some("12345678")
+            } if expected_item_id == &["12345678".to_string()]
                 && another_name == "示例展示名"
                 && postfix_text == "示例后缀"
                 && frame_title == "示例框下标题"

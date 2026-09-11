@@ -8,6 +8,8 @@ const DISTINGUISH_URLS_URL: &str =
 const GOODS_DETAIL_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/id";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
+const CREATE_CMC_TASK_URL: &str =
+    "https://mall.bilibili.com/mall-cbp/web/task/op/createCmcTask";
 const MALL_PUBLIC_INFO_URL: &str = "https://mall.bilibili.com/mall-c-search/items/info";
 const TICKET_PUBLIC_INFO_URL: &str = "https://show.bilibili.com/api/ticket/project/getV2";
 const GOODS_SEARCH_PAGE: u32 = 1;
@@ -18,6 +20,8 @@ pub const UNDER_VIDEO_PLACE_TYPE: u32 = 1;
 pub const DEFAULT_CARD_PLACE_TYPE: u32 = 12;
 /// 视频框下标题最大字符数。
 pub const UNDER_VIDEO_TITLE_MAX_CHARS: usize = 12;
+/// 单条评论蓝链允许挂载的最大商品数量。
+pub const MAX_COMMENT_GOODS: usize = 20;
 const UNDER_VIDEO_STYLE: u8 = 1;
 
 /// 构造挂载计划所需的检索、展示位和文案参数。
@@ -216,6 +220,74 @@ pub fn build_attach_payload(
         "videoInfos": [{"avId": aid.to_string()}],
         "cmcInfos": cmc_infos,
     })
+}
+
+/// 构造一条评论蓝链的多商品挂载请求体。
+///
+/// 输入：已完成商品识别的挂载计划、视频 AID。返回：`createCmcTask` 请求体；多个商品共用一个 `detailInfos`。
+pub fn build_cmc_task_payload(plans: &[GoodsAttachPlan], aid: u64) -> Result<Value> {
+    if plans.is_empty() {
+        return Err(Kind::Custom("评论蓝链至少需要一个商品".to_string()));
+    }
+    if plans.len() > MAX_COMMENT_GOODS {
+        return Err(Kind::Custom(format!(
+            "一条评论蓝链最多挂载 {MAX_COMMENT_GOODS} 个商品，当前为 {} 个",
+            plans.len()
+        )));
+    }
+    let detail_infos = plans
+        .iter()
+        .enumerate()
+        .map(|(index, plan)| {
+            let item_id = required_item_id(&plan.item)?;
+            let title = required_string(&plan.item, "goodsName")?;
+            let cmc_info = plan
+                .attach_payload
+                .get("cmcInfos")
+                .and_then(Value::as_array)
+                .and_then(|infos| {
+                    infos.iter().find(|info| {
+                        info.get("cmcPlaceType").and_then(Value::as_u64)
+                            == Some(DEFAULT_CARD_PLACE_TYPE as u64)
+                    })
+                })
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let another_name = cmc_info
+                .get("anotherName")
+                .and_then(Value::as_str)
+                .filter(|name| *name != title)
+                .unwrap_or("");
+            let prefix_text = if index == 0 {
+                cmc_info
+                    .get("prefixText")
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                    .map(|text| format!("{text}\n"))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let postfix_text = if index + 1 < plans.len() { "\n" } else { "" };
+            Ok(json!({
+                "cmcPlaceType": DEFAULT_CARD_PLACE_TYPE,
+                "title": title,
+                "itemId": item_id,
+                "anotherName": another_name,
+                "postfixText": postfix_text,
+                "prefixText": prefix_text,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({
+        "cmcInfos": [{
+            "avId": aid.to_string(),
+            "fromType": 3,
+            "masTaskId": 0,
+            "detailInfos": detail_infos,
+        }],
+        "requestFrom": 109,
+    }))
 }
 
 /// 校验选中商品 ID 是否等于用户指定值。
@@ -841,6 +913,47 @@ impl BiliBili {
         }
         Ok((cart_result, attach_result))
     }
+
+    /// 执行多个商品合并为一条评论蓝链的挂载。
+    ///
+    /// 输入：已完成预检的商品计划。返回：选品车响应数组与单条评论挂载响应。
+    pub async fn execute_cmc_task(
+        &self,
+        plans: &[GoodsAttachPlan],
+    ) -> Result<(Value, Value)> {
+        if plans.len() > MAX_COMMENT_GOODS {
+            return Err(Kind::Custom(format!(
+                "一条评论蓝链最多挂载 {MAX_COMMENT_GOODS} 个商品，当前为 {} 个",
+                plans.len()
+            )));
+        }
+        let mut cart_results = Vec::with_capacity(plans.len());
+        for plan in plans {
+            let cart_result = if plan.needs_add_to_cart() {
+                self.mall_json_post(ADD_TO_CART_URL, &plan.cart_payload)
+                    .await?
+            } else {
+                json!("already_in_selection_cart")
+            };
+            cart_results.push(cart_result);
+        }
+        let aid = plans
+            .first()
+            .and_then(|plan| plan.attach_payload.pointer("/videoInfos/0/avId"))
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| Kind::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
+        let payload = build_cmc_task_payload(plans, aid)?;
+        let result = self
+            .mall_json_post(CREATE_CMC_TASK_URL, &payload)
+            .await?;
+        if result.get("code").and_then(Value::as_i64) != Some(0) {
+            return Err(Kind::Custom(format!(
+                "评论蓝链挂载接口返回失败：{result}"
+            )));
+        }
+        Ok((Value::Array(cart_results), result))
+    }
 }
 
 #[cfg(test)]
@@ -848,6 +961,7 @@ mod tests {
     use super::{
         DEFAULT_CARD_PLACE_TYPE, GoodsAttachPlan, UNDER_VIDEO_PLACE_TYPE,
         UNDER_VIDEO_TITLE_MAX_CHARS, build_attach_payload, build_cart_payload,
+        build_cmc_task_payload,
         collect_failed_res_codes, distinguish_goods_items, normalize_goods_url,
         parse_main_image_url, parse_mall_public_detail, parse_ticket_public_detail,
         summarize_goods_item, truncate_chars, under_video_title, validate_expected_item_id,
@@ -1010,6 +1124,29 @@ mod tests {
             payload["cmcInfos"][0]["cmcPlaceType"],
             json!(UNDER_VIDEO_PLACE_TYPE)
         );
+    }
+
+    #[test]
+    fn cmc_task_payload_puts_multiple_goods_in_one_comment() {
+        let first = GoodsAttachPlan {
+            item: json!({"itemId": "13667449", "goodsName": "角川 英雄传说 轨迹系列 版画"}),
+            cart_payload: json!({}),
+            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12, "anotherName": "角川 英雄传说 轨迹系列 版画", "prefixText": "大家都想要的同款，都在这里啦！", "postfixText": ""}]}),
+        };
+        let second = GoodsAttachPlan {
+            item: json!({"itemId": "13667450", "goodsName": "角川 英雄传说 轨迹系列 毛绒玩偶挂件"}),
+            cart_payload: json!({}),
+            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12, "anotherName": "角川 英雄传说 轨迹系列 毛绒玩偶挂件", "prefixText": "", "postfixText": ""}]}),
+        };
+        let payload = build_cmc_task_payload(&[first, second], 117251432844284).unwrap();
+        assert_eq!(payload["requestFrom"], json!(109));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"].as_array().unwrap().len(), 2);
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["itemId"], json!("13667449"));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["itemId"], json!("13667450"));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["prefixText"], json!("大家都想要的同款，都在这里啦！\n"));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["postfixText"], json!("\n"));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["prefixText"], json!(""));
+        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["postfixText"], json!(""));
     }
 
     #[test]
