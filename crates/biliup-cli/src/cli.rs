@@ -151,6 +151,11 @@ pub enum Commands {
         #[arg(long)]
         execute: bool,
     },
+    /// 管理新版合集（SEASON）
+    Season {
+        #[command(subcommand)]
+        command: SeasonCommands,
+    },
     /// 搜索商品，或挂载到已发布视频
     Goods {
         #[command(subcommand)]
@@ -221,6 +226,76 @@ pub enum Commands {
         /// 最大获取页数
         #[arg(short, long)]
         max_pages: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SeasonCommands {
+    /// 列出当前账号的合集
+    List {
+        /// 从第几页开始获取
+        #[arg(long, default_value = "1")]
+        pn: u32,
+
+        /// 每页合集数量
+        #[arg(long, default_value = "30")]
+        ps: u32,
+    },
+    /// 查看合集分区内的视频
+    Episodes {
+        /// 合集分区 ID
+        #[arg(long)]
+        section_id: u64,
+
+        /// 可选排序方式，例如 desc
+        #[arg(long)]
+        sort: Option<String>,
+    },
+    /// 添加视频到合集，默认只预览请求
+    Add {
+        /// 合集分区 ID
+        #[arg(long)]
+        section_id: u64,
+
+        /// 视频 AV/BV 号，可重复传入
+        #[arg(long = "vid", required = true, num_args = 1..)]
+        vids: Vec<Vid>,
+
+        /// 实际提交添加操作
+        #[arg(long)]
+        execute: bool,
+    },
+    /// 从合集移除视频，默认只预览请求
+    Remove {
+        /// 合集内部视频 episode ID，不是 aid 或 BV 号
+        #[arg(long)]
+        episode_id: u64,
+
+        /// 实际提交移除操作
+        #[arg(long)]
+        execute: bool,
+    },
+    /// 重新排序合集分区，默认只预览请求
+    Sort {
+        /// 合集 ID
+        #[arg(long)]
+        season_id: u64,
+
+        /// 合集分区 ID
+        #[arg(long)]
+        section_id: u64,
+
+        /// 合集分区标题
+        #[arg(long, default_value = "正片")]
+        section_title: String,
+
+        /// 按目标顺序传入全部 episode ID，可重复传入
+        #[arg(long = "episode-id", required = true, num_args = 1..)]
+        episode_ids: Vec<u64>,
+
+        /// 实际提交排序操作
+        #[arg(long)]
+        execute: bool,
     },
 }
 
@@ -361,6 +436,68 @@ mod tests {
                 execute: true,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn season_add_accepts_repeated_vids_and_defaults_to_dry_run() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "season",
+            "add",
+            "--section-id",
+            "42",
+            "--vid",
+            "BV1test",
+            "--vid",
+            "av123",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Season {
+                command: super::SeasonCommands::Add {
+                    section_id: 42,
+                    ref vids,
+                    execute: false,
+                }
+            } if vids == &vec![
+                biliup::uploader::bilibili::Vid::Bvid("BV1test".into()),
+                biliup::uploader::bilibili::Vid::Aid(123),
+            ]
+        ));
+    }
+
+    #[test]
+    fn season_sort_accepts_all_episode_ids_and_execute() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "season",
+            "sort",
+            "--season-id",
+            "7",
+            "--section-id",
+            "8",
+            "--episode-id",
+            "11",
+            "--episode-id",
+            "12",
+            "--execute",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Season {
+                command: super::SeasonCommands::Sort {
+                    season_id: 7,
+                    section_id: 8,
+                    ref episode_ids,
+                    execute: true,
+                    ..
+                }
+            } if episode_ids == &vec![11, 12]
         ));
     }
 

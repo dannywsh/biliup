@@ -793,6 +793,184 @@ impl BiliBili {
         }
     }
 
+    /// 获取当前账号的新版合集列表。
+    ///
+    /// 输入参数：`pn` 为从 1 开始的页码，`ps` 为每页数量。
+    /// 返回值：B 站合集列表接口返回的 JSON 数据。
+    pub async fn season_list(&self, pn: u32, ps: u32) -> Result<Value> {
+        if pn == 0 || ps == 0 {
+            return Err(Kind::Custom("合集页码和每页数量必须大于 0".into()));
+        }
+        self.season_request(
+            self.client
+                .get("https://member.bilibili.com/x2/creative/web/seasons")
+                .query(&[
+                    ("pn", pn.to_string()),
+                    ("ps", ps.to_string()),
+                    ("order", "mtime".to_string()),
+                    ("sort", "desc".to_string()),
+                    ("draft", "1".to_string()),
+                ]),
+        )
+        .await
+    }
+
+    /// 获取指定合集分区中的视频列表。
+    ///
+    /// 输入参数：`section_id` 为合集分区 ID，`sort` 为可选排序参数。
+    /// 返回值：B 站合集分区接口返回的 JSON 数据。
+    pub async fn season_section(&self, section_id: u64, sort: Option<&str>) -> Result<Value> {
+        if section_id == 0 {
+            return Err(Kind::Custom("合集分区 ID 必须大于 0".into()));
+        }
+        let mut request = self
+            .client
+            .get("https://member.bilibili.com/x2/creative/web/season/section")
+            .query(&[("id", section_id.to_string())]);
+        if let Some(sort) = sort.filter(|value| !value.is_empty()) {
+            request = request.query(&[("sort", sort.to_string())]);
+        }
+        self.season_request(request).await
+    }
+
+    /// 根据稿件号构造添加到合集所需的视频条目。
+    ///
+    /// 输入参数：`vid` 为 AV 号或 BV 号。
+    /// 返回值：包含 `aid`、首个分 P 的 `cid`、视频标题和 `charging_pay` 的 JSON 对象。
+    pub async fn season_video_episode(&self, vid: &Vid) -> Result<Value> {
+        let aid = self.aid_from_vid(vid).await?;
+        let response = self
+            .client
+            .get("https://api.bilibili.com/x/web-interface/view")
+            .query(&[("aid", aid.to_string())])
+            .send()
+            .await?;
+        let payload: ResponseData = response.json().await?;
+        let data = match payload {
+            ResponseData {
+                code: 0,
+                data: Some(data),
+                ..
+            } => data,
+            ResponseData { code, .. } => {
+                return Err(Kind::Custom(format!(
+                    "获取视频信息失败：Bilibili code {code}"
+                )));
+            }
+        };
+        let title = data
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|title| !title.is_empty())
+            .ok_or_else(|| Kind::Custom("视频信息缺少标题".into()))?;
+        let cid = data
+            .pointer("/pages/0/cid")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| Kind::Custom("视频信息缺少首个分 P 的 cid".into()))?;
+        Ok(json!({
+            "aid": aid,
+            "cid": cid,
+            "title": title,
+            "charging_pay": 0,
+        }))
+    }
+
+    /// 将视频添加到指定合集分区。
+    ///
+    /// 输入参数：`section_id` 为合集分区 ID，`episodes` 为包含 aid、cid、title 和
+    /// charging_pay 的视频条目数组。返回值：B 站接口返回的 JSON 数据。
+    pub async fn season_add(&self, section_id: u64, episodes: Vec<Value>) -> Result<Value> {
+        if section_id == 0 {
+            return Err(Kind::Custom("合集分区 ID 必须大于 0".into()));
+        }
+        if episodes.is_empty() {
+            return Err(Kind::Custom("至少需要添加一个视频".into()));
+        }
+        let csrf = self.get_csrf()?.to_string();
+        self.season_request(
+            self.client
+                .post("https://member.bilibili.com/x2/creative/web/season/section/episodes/add")
+                .query(&[("csrf", csrf.clone())])
+                .json(&json!({
+                    "sectionId": section_id,
+                    "episodes": episodes,
+                    "csrf": csrf,
+                })),
+        )
+        .await
+    }
+
+    /// 从合集移除一个视频。
+    ///
+    /// 输入参数：`episode_id` 为合集内部的视频 ID，不是 aid 或 BV 号。
+    /// 返回值：B 站接口返回的 JSON 数据。
+    pub async fn season_remove(&self, episode_id: u64) -> Result<Value> {
+        if episode_id == 0 {
+            return Err(Kind::Custom("合集视频 episode ID 必须大于 0".into()));
+        }
+        let csrf = self.get_csrf()?.to_string();
+        self.season_request(
+            self.client
+                .post("https://member.bilibili.com/x2/creative/web/season/section/episode/del")
+                .form(&[("id", episode_id.to_string()), ("csrf", csrf)]),
+        )
+        .await
+    }
+
+    /// 更新合集分区内所有视频的排序。
+    ///
+    /// 输入参数：`section_id`、`season_id` 和 `section_title` 标识分区，`sorts` 必须
+    /// 包含该分区中的全部视频，每项包含合集内部的 episode ID 和从 1 开始的 sort 序号。
+    /// 返回值：B 站接口返回的 JSON 数据。
+    pub async fn season_sort(
+        &self,
+        section_id: u64,
+        season_id: u64,
+        section_title: &str,
+        sorts: Vec<Value>,
+    ) -> Result<Value> {
+        if section_id == 0 || season_id == 0 {
+            return Err(Kind::Custom("合集 ID 和分区 ID 必须大于 0".into()));
+        }
+        if section_title.trim().is_empty() {
+            return Err(Kind::Custom("合集分区标题不能为空".into()));
+        }
+        if sorts.is_empty() {
+            return Err(Kind::Custom("至少需要提供一个排序条目".into()));
+        }
+        let csrf = self.get_csrf()?.to_string();
+        self.season_request(
+            self.client
+                .post("https://member.bilibili.com/x2/creative/web/season/section/edit")
+                .query(&[("csrf", csrf)])
+                .json(&json!({
+                    "section": {
+                        "id": section_id,
+                        "type": 1,
+                        "seasonId": season_id,
+                        "title": section_title,
+                    },
+                    "sorts": sorts,
+                    "captcha_token": "",
+                })),
+        )
+        .await
+    }
+
+    /// 统一解析合集接口响应并隐藏不必要的认证上下文。
+    ///
+    /// 输入参数：已构造的合集接口请求。
+    /// 返回值：接口 `data` 字段；成功但没有数据时返回 JSON null。
+    async fn season_request(&self, request: reqwest::RequestBuilder) -> Result<Value> {
+        let response: ResponseData = request.send().await?.json().await?;
+        match response {
+            ResponseData { code: 0, data, .. } => Ok(data.unwrap_or(Value::Null)),
+            ResponseData { code, .. } => {
+                Err(Kind::Custom(format!("合集接口返回 Bilibili code {code}")))
+            }
+        }
+    }
+
     pub async fn studio_data(&self, vid: &Vid, proxy: Option<&str>) -> Result<Studio> {
         let mut video_info = self.video_data(vid, proxy).await?;
         const EXTRA_FIELDS_BLACKLIST: &[&str] = &["limited_free"];

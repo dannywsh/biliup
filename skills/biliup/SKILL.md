@@ -1,13 +1,13 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购商品挂载、票务商品挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, episodes, add, remove, sort), and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购商品挂载、票务商品挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
 ---
 
 # biliup
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
+This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season`, and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
 
 ## Install
 
@@ -30,7 +30,7 @@ unzip biliup-*-aarch64-macos.zip
 install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply` and `goods`, `biliup upload --help` lists `--post-upload-goods` and `--cover43`, and `biliup goods attach --help` lists `--frame-title`.
+If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply`, `season`, and `goods`, `biliup upload --help` lists `--post-upload-goods` and `--cover43`, and `biliup goods attach --help` lists `--frame-title`.
 
 ## Upload with post-upload goods
 
@@ -162,6 +162,25 @@ biliup goods attach BV1xxx \
   --execute
 ```
 
+## Seasons / collections
+
+`season list` and `season episodes` are read-only. `season add`, `season remove`, and `season sort` are dry-run by default and require `--execute` for the write request. Keep the IDs distinct:
+
+- `season_id`: the collection ID from `season list`.
+- `section_id`: the collection section ID from `season list`.
+- `episode_id`: the collection-internal video ID from `season episodes`, not an aid or BV number.
+
+```bash
+biliup season list -u /absolute/path/cookies.json
+biliup season episodes --section-id <section_id>
+biliup season add --section-id <section_id> --vid BV1xxx --execute
+biliup season remove --episode-id <episode_id> --execute
+biliup season sort --season-id <season_id> --section-id <section_id> \
+  --episode-id <episode_id_1> --episode-id <episode_id_2> --execute
+```
+
+For `season sort`, pass every episode in the target section in its desired order. The CLI does not automatically add newly uploaded videos to a collection. Never print or paste cookie contents into logs, tests, or reports.
+
 ## Server
 
 ```bash
@@ -183,6 +202,7 @@ comments
 reply
 top-reply
 goods
+season
 dump-flv
 download
 server

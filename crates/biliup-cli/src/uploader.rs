@@ -5,9 +5,7 @@ use biliup::client::StatelessClient;
 use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
-use biliup::uploader::goods::{
-    GoodsAttachOptions, build_cmc_task_payload, summarize_goods_item,
-};
+use biliup::uploader::goods::{GoodsAttachOptions, build_cmc_task_payload, summarize_goods_item};
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, credential, line, load_config};
@@ -346,6 +344,152 @@ pub async fn top_reply(
     Ok(())
 }
 
+/// 列出当前账号的新版合集。
+///
+/// 输入：登录凭据路径、页码、每页数量和可选代理。
+/// 返回：打印合集接口的 JSON 数据，不输出登录账号信息。
+pub async fn season_list(
+    user_cookie: PathBuf,
+    pn: u32,
+    ps: u32,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let seasons = bilibili
+        .season_list(pn, ps)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&seasons)
+}
+
+/// 查看指定合集分区中的视频。
+///
+/// 输入：登录凭据路径、合集分区 ID、可选排序方式和可选代理。
+/// 返回：打印合集分区接口的 JSON 数据，不执行任何写操作。
+pub async fn season_episodes(
+    user_cookie: PathBuf,
+    section_id: u64,
+    sort: Option<String>,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let episodes = bilibili
+        .season_section(section_id, sort.as_deref())
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&episodes)
+}
+
+/// 添加视频到合集，默认只打印待提交请求。
+///
+/// 输入：登录凭据路径、合集分区 ID、视频 AV/BV 号列表、执行开关和可选代理。
+/// 返回：dry-run 时打印请求预览；执行时打印 B 站接口响应。
+pub async fn season_add(
+    user_cookie: PathBuf,
+    section_id: u64,
+    vids: Vec<Vid>,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let mut episodes = Vec::with_capacity(vids.len());
+    for vid in &vids {
+        episodes.push(
+            bilibili
+                .season_video_episode(vid)
+                .await
+                .change_context_lazy(|| AppError::Unknown)?,
+        );
+    }
+    let payload = json!({
+        "sectionId": section_id,
+        "episodes": episodes,
+    });
+    if !execute {
+        println!("dry-run: season add");
+        return print_json(&payload);
+    }
+
+    let result = bilibili
+        .season_add(
+            section_id,
+            payload["episodes"].as_array().cloned().unwrap_or_default(),
+        )
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&result)
+}
+
+/// 从合集移除视频，默认只打印待提交操作。
+///
+/// 输入：登录凭据路径、合集内部 episode ID、执行开关和可选代理。
+/// 返回：dry-run 时打印操作预览；执行时打印 B 站接口响应。
+pub async fn season_remove(
+    user_cookie: PathBuf,
+    episode_id: u64,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    if !execute {
+        println!("dry-run: season remove episode_id={episode_id}");
+        println!("use --execute to remove the episode");
+        return Ok(());
+    }
+
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let result = bilibili
+        .season_remove(episode_id)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&result)
+}
+
+/// 重新排序合集分区，默认只打印待提交请求。
+///
+/// 输入：登录凭据路径、合集和分区 ID、分区标题、按目标顺序排列的全部 episode ID、
+/// 执行开关和可选代理。返回：dry-run 时打印排序请求；执行时打印 B 站接口响应。
+pub async fn season_sort(
+    user_cookie: PathBuf,
+    season_id: u64,
+    section_id: u64,
+    section_title: String,
+    episode_ids: Vec<u64>,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let sorts: Vec<Value> = episode_ids
+        .iter()
+        .enumerate()
+        .map(|(index, episode_id)| json!({ "id": episode_id, "sort": index + 1 }))
+        .collect();
+    let payload = json!({
+        "section": {
+            "id": section_id,
+            "type": 1,
+            "seasonId": season_id,
+            "title": section_title,
+        },
+        "sorts": sorts,
+        "captcha_token": "",
+    });
+    if !execute {
+        println!("dry-run: season sort");
+        return print_json(&payload);
+    }
+
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let result = bilibili
+        .season_sort(
+            section_id,
+            season_id,
+            payload["section"]["title"].as_str().unwrap_or("正片"),
+            payload["sorts"].as_array().cloned().unwrap_or_default(),
+        )
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&result)
+}
+
 /// 通过商品链接或 itemId 精确识别可售会员购商品。
 ///
 /// 输入：`user_cookie` 登录文件、`query` 商品链接或 itemId、`proxy` 可选代理。
@@ -432,7 +576,12 @@ pub async fn goods_attach(
             .ok_or_else(|| AppError::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
         build_cmc_task_payload(&plans, aid).change_context_lazy(|| AppError::Unknown)?
     } else {
-        json!(plans.iter().map(|plan| &plan.attach_payload).collect::<Vec<_>>())
+        json!(
+            plans
+                .iter()
+                .map(|plan| &plan.attach_payload)
+                .collect::<Vec<_>>()
+        )
     };
     print_json(&json!({
         "selectedItems": plans
@@ -567,12 +716,10 @@ async fn login_by_cookies(user_cookie: PathBuf, proxy: Option<&str>) -> AppResul
                 .my_info()
                 .await
                 .change_context_lazy(|| AppError::Unknown)?;
-            info!(
-                "user: {}",
-                info["data"]["name"]
-                    .as_str()
-                    .ok_or_else(|| AppError::Custom(format!("{info}no name")))?
-            );
+            if !info["data"]["name"].is_string() {
+                return Err(AppError::Custom("登录接口未返回账号信息".to_string()).into());
+            }
+            info!("登录凭据已验证");
             bili
         }
     })

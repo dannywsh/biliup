@@ -5,11 +5,12 @@
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
 - 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
+- 新版合集管理（`season list` / `season episodes` / `season add` / `season remove` / `season sort`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
 请使用本仓库 [Releases](https://github.com/dannywsh/biliup/releases/latest) 里的 `biliup`。PyPI 的 `biliup`、`uv tool install biliup`、以及上游 [biliup/biliup](https://github.com/biliup/biliup) 的 Release 都没有上述能力。
 
-Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 默认只预览，必须加 `--execute` 才会真正提交。
+Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 以及合集的 `add`、`remove`、`sort` 默认只预览，必须加 `--execute` 才会真正提交。
 
 ## 安装
 
@@ -32,7 +33,7 @@ unzip biliup-*-aarch64-macos.zip
 install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。装好后确认 `biliup --help` 有 `top-reply`、`goods`，`biliup upload --help` 有 `--post-upload-goods`、`--cover43`。
+若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。装好后确认 `biliup --help` 有 `top-reply`、`goods`、`season`，`biliup upload --help` 有 `--post-upload-goods`、`--cover43`。
 
 需要改代码时再从源码构建，见下方「开发」。
 
@@ -134,6 +135,30 @@ biliup goods attach BV1xxx \
 
 执行成功后看 `finalResult.jumpUrl`，这是后续填表用的商品链接。`--index` 选择搜索结果下标（默认 `0`）。
 
+## 合集管理
+
+`season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`add`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。
+
+```bash
+# 查看合集列表
+biliup season list -u /absolute/path/cookies.json
+
+# 查看某个合集分区的视频
+biliup season episodes --section-id <section_id>
+
+# 预览并执行添加视频
+biliup season add --section-id <section_id> --vid BV1xxx --vid av123456 --execute
+
+# 预览并执行移除合集内部视频
+biliup season remove --episode-id <episode_id> --execute
+
+# 按指定顺序重排全部视频
+biliup season sort --season-id <season_id> --section-id <section_id> \
+  --episode-id <episode_id_1> --episode-id <episode_id_2> --execute
+```
+
+合集 ID、分区 ID 和 episode ID 来自 `season list` / `season episodes` 的返回值。CLI 不会自动把刚投稿的视频加入合集，也不会在未指定 `--execute` 时修改合集。
+
 ## 其他命令
 
 ```text
@@ -146,6 +171,7 @@ comments   查看评论
 reply      发表或回复评论（默认 dry-run）
 top-reply  置顶或取消置顶（默认 dry-run）
 goods      搜索商品，或挂载到已发布视频
+season     管理新版合集
 list       列出已投稿视频
 download   下载视频
 dump-flv   输出 FLV 元数据

@@ -1,11 +1,12 @@
 use time::macros::format_description;
 
 use biliup::uploader::util::SubmitOption;
-use biliup_cli::cli::{Cli, Commands, GoodsCommands, expand_path};
+use biliup_cli::cli::{Cli, Commands, GoodsCommands, SeasonCommands, expand_path};
 use biliup_cli::downloader::{download, generate_json};
 use biliup_cli::uploader::{
-    append, comments, goods_attach, goods_search, list, login, renew, reply, show, top_reply,
-    upload_by_command, upload_by_config,
+    append, comments, goods_attach, goods_search, list, login, renew, reply, season_add,
+    season_episodes, season_list, season_remove, season_sort, show, top_reply, upload_by_command,
+    upload_by_config,
 };
 
 use clap::Parser;
@@ -147,6 +148,48 @@ async fn main() -> AppResult<()> {
             unpin,
             execute,
         } => top_reply(user_cookie, vid, rpid, unpin, execute, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command: SeasonCommands::List { pn, ps },
+        } => season_list(user_cookie, pn, ps, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command: SeasonCommands::Episodes { section_id, sort },
+        } => season_episodes(user_cookie, section_id, sort, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command:
+                SeasonCommands::Add {
+                    section_id,
+                    vids,
+                    execute,
+                },
+        } => season_add(user_cookie, section_id, vids, execute, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command:
+                SeasonCommands::Remove {
+                    episode_id,
+                    execute,
+                },
+        } => season_remove(user_cookie, episode_id, execute, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command:
+                SeasonCommands::Sort {
+                    season_id,
+                    section_id,
+                    section_title,
+                    episode_ids,
+                    execute,
+                },
+        } => {
+            season_sort(
+                user_cookie,
+                season_id,
+                section_id,
+                section_title,
+                episode_ids,
+                execute,
+                cli.proxy.as_deref(),
+            )
+            .await?
+        }
         Commands::Goods {
             command: GoodsCommands::Search { query },
         } => goods_search(user_cookie, query, cli.proxy.as_deref()).await?,
