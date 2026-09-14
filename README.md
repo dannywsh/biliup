@@ -5,12 +5,12 @@
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
 - 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
-- 新版合集管理（`season list` / `season episodes` / `season add` / `season remove` / `season sort`）
+- 新版合集管理（`season list` / `season episodes` / `season add` / `season edit` / `season remove` / `season sort`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
 请使用本仓库 [Releases](https://github.com/dannywsh/biliup/releases/latest) 里的 `biliup`。PyPI 的 `biliup`、`uv tool install biliup`、以及上游 [biliup/biliup](https://github.com/biliup/biliup) 的 Release 都没有上述能力。
 
-Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 以及合集的 `add`、`remove`、`sort` 默认只预览，必须加 `--execute` 才会真正提交。
+Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 以及合集的 `add`、`edit`、`remove`、`sort` 默认只预览，必须加 `--execute` 才会真正提交。
 
 ## 安装
 
@@ -137,7 +137,7 @@ biliup goods attach BV1xxx \
 
 ## 合集管理
 
-`season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`add`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。
+`season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`add`、`edit`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。`edit` 会先读取目标分区的完整条目，只替换合集内标题并保留 `aid`、`cid`、排序等字段。
 
 ```bash
 # 查看合集列表
@@ -148,6 +148,10 @@ biliup season episodes --section-id <section_id>
 
 # 预览并执行添加视频
 biliup season add --section-id <section_id> --vid BV1xxx --vid av123456 --execute
+
+# 预览并执行修改合集内标题
+biliup season edit --section-id <section_id> --episode-id <episode_id> \
+  --title "新的合集内标题" --execute
 
 # 预览并执行移除合集内部视频
 biliup season remove --episode-id <episode_id> --execute
@@ -171,7 +175,7 @@ comments   查看评论
 reply      发表或回复评论（默认 dry-run）
 top-reply  置顶或取消置顶（默认 dry-run）
 goods      搜索商品，或挂载到已发布视频
-season     管理新版合集
+season     管理新版合集（包含标题编辑）
 list       列出已投稿视频
 download   下载视频
 dump-flv   输出 FLV 元数据

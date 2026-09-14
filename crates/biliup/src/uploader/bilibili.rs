@@ -900,6 +900,41 @@ impl BiliBili {
         .await
     }
 
+    /// 修改合集内单个视频的标题。
+    ///
+    /// 输入参数：`episode` 为从合集分区接口取得的完整视频条目，至少包含有效的
+    /// `id` 和非空 `title`，其余字段用于保留合集条目的上下文。返回值：B 站接口返回的
+    /// JSON 数据。
+    pub async fn season_edit_episode(&self, episode: Value) -> Result<Value> {
+        let episode_id = episode
+            .get("id")
+            .and_then(Value::as_u64)
+            .filter(|id| *id > 0)
+            .ok_or_else(|| Kind::Custom("合集视频 episode ID 必须大于 0".into()))?;
+        let title = episode
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .ok_or_else(|| Kind::Custom("合集视频标题不能为空".into()))?
+            .to_string();
+        let mut episode = episode;
+        episode["title"] = Value::String(title);
+        let csrf = self.get_csrf()?.to_string();
+        self.season_request(
+            self.client
+                .post("https://member.bilibili.com/x2/creative/web/season/section/episode/edit")
+                .query(&[("csrf", csrf)])
+                .json(&episode),
+        )
+        .await
+        .map_err(|error| {
+            Kind::Custom(format!(
+                "修改合集视频标题失败（episode_id={episode_id}）：{error}"
+            ))
+        })
+    }
+
     /// 从合集移除一个视频。
     ///
     /// 输入参数：`episode_id` 为合集内部的视频 ID，不是 aid 或 BV 号。

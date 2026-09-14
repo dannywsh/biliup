@@ -265,6 +265,24 @@ pub enum SeasonCommands {
         #[arg(long)]
         execute: bool,
     },
+    /// 修改合集内视频标题，默认只预览请求
+    Edit {
+        /// 合集分区 ID
+        #[arg(long)]
+        section_id: u64,
+
+        /// 合集内部视频 episode ID，不是 aid 或 BV 号
+        #[arg(long)]
+        episode_id: u64,
+
+        /// 修改后的合集内标题
+        #[arg(long)]
+        title: String,
+
+        /// 实际提交标题修改操作
+        #[arg(long)]
+        execute: bool,
+    },
     /// 从合集移除视频，默认只预览请求
     Remove {
         /// 合集内部视频 episode ID，不是 aid 或 BV 号
@@ -498,6 +516,34 @@ mod tests {
                     ..
                 }
             } if episode_ids == &vec![11, 12]
+        ));
+    }
+
+    #[test]
+    fn season_edit_requires_section_episode_title_and_defaults_to_dry_run() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "season",
+            "edit",
+            "--section-id",
+            "8",
+            "--episode-id",
+            "11",
+            "--title",
+            "示例合集标题",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Season {
+                command: super::SeasonCommands::Edit {
+                    section_id: 8,
+                    episode_id: 11,
+                    ref title,
+                    execute: false,
+                }
+            } if title == "示例合集标题"
         ));
     }
 

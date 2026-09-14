@@ -420,6 +420,69 @@ pub async fn season_add(
     print_json(&result)
 }
 
+/// 从合集分区响应中构造标题编辑请求体。
+///
+/// 输入：合集分区 JSON、目标 episode ID 和新标题。
+/// 返回：保留原始合集字段、仅替换 `title` 后的请求体，或返回校验错误。
+fn build_season_edit_payload(
+    section: &Value,
+    episode_id: u64,
+    title: &str,
+) -> Result<Value, AppError> {
+    if episode_id == 0 {
+        return Err(AppError::Custom(
+            "合集视频 episode ID 必须大于 0".to_string(),
+        ));
+    }
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(AppError::Custom("合集视频标题不能为空".to_string()));
+    }
+    let episodes = section
+        .get("episodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::Custom("合集分区响应缺少 episodes 列表".to_string()))?;
+    let mut episode = episodes
+        .iter()
+        .find(|episode| episode.get("id").and_then(Value::as_u64) == Some(episode_id))
+        .cloned()
+        .ok_or_else(|| {
+            AppError::Custom(format!("合集分区中未找到 episode_id={episode_id} 的视频"))
+        })?;
+    episode["title"] = Value::String(title.to_string());
+    Ok(episode)
+}
+
+/// 修改合集内视频标题，默认只打印待提交请求。
+///
+/// 输入：登录凭据路径、合集分区 ID、合集内部 episode ID、新标题、执行开关和可选代理。
+/// 返回：dry-run 时打印完整请求体；执行时打印 B 站接口响应。
+pub async fn season_edit(
+    user_cookie: PathBuf,
+    section_id: u64,
+    episode_id: u64,
+    title: String,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let section = bilibili
+        .season_section(section_id, None)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    let payload = build_season_edit_payload(&section, episode_id, &title)?;
+    if !execute {
+        println!("dry-run: season edit");
+        return print_json(&payload);
+    }
+
+    let result = bilibili
+        .season_edit_episode(payload)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&result)
+}
+
 /// 从合集移除视频，默认只打印待提交操作。
 ///
 /// 输入：登录凭据路径、合集内部 episode ID、执行开关和可选代理。
@@ -1149,5 +1212,46 @@ impl Stream for Progressbar {
             None => Poll::Ready(None),
             Some(s) => Poll::Ready(Some(Ok(s))),
         }
+    }
+}
+
+#[cfg(test)]
+mod season_tests {
+    use super::build_season_edit_payload;
+    use serde_json::json;
+
+    #[test]
+    fn edit_payload_replaces_only_the_episode_title() {
+        let section = json!({
+            "episodes": [{
+                "id": 11,
+                "title": "旧合集标题",
+                "aid": 22,
+                "cid": 33,
+                "seasonId": 44,
+                "sectionId": 55,
+                "sorts": [{"id": 11, "sort": 1}],
+                "order": 1
+            }]
+        });
+
+        let payload = build_season_edit_payload(&section, 11, "  新合集标题  ").unwrap();
+
+        assert_eq!(payload["title"], "新合集标题");
+        assert_eq!(payload["aid"], 22);
+        assert_eq!(payload["cid"], 33);
+        assert_eq!(payload["seasonId"], 44);
+        assert_eq!(payload["sectionId"], 55);
+        assert_eq!(payload["sorts"][0]["sort"], 1);
+        assert_eq!(payload["order"], 1);
+    }
+
+    #[test]
+    fn edit_payload_rejects_empty_title() {
+        let section = json!({"episodes": [{"id": 11, "title": "旧标题"}]});
+
+        let error = build_season_edit_payload(&section, 11, "  ").unwrap_err();
+
+        assert!(error.to_string().contains("标题不能为空"));
     }
 }

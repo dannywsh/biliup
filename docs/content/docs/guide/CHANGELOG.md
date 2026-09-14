@@ -19,6 +19,11 @@ top = false
 - 🔧已修复的问题
 - ⚠️需要手动操作的更新信息
 
+## 0.0.11
+
+- 新增 `season edit`，支持修改合集内视频标题。
+- 合集标题编辑默认 dry-run，使用 `--execute` 才会提交。
+
 ## 1.2.1
 **Full Changelog**:[v1.2.0...v1.2.1](https://github.com/biliup/biliup/compare/v1.2.0...v1.2.1)
 
