@@ -5,7 +5,7 @@
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
 - 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
-- 新版合集管理（`season list` / `season episodes` / `season add` / `season edit` / `season remove` / `season sort`）
+- 新版合集管理（`season list` / `season create` / `season episodes` / `season add` / `season edit` / `season remove` / `season sort`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
 请使用本仓库 [Releases](https://github.com/dannywsh/biliup/releases/latest) 里的 `biliup`。PyPI 的 `biliup`、`uv tool install biliup`、以及上游 [biliup/biliup](https://github.com/biliup/biliup) 的 Release 都没有上述能力。
@@ -137,11 +137,16 @@ biliup goods attach BV1xxx \
 
 ## 合集管理
 
-`season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`add`、`edit`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。`edit` 会先读取目标分区的完整条目，只替换合集内标题并保留 `aid`、`cid`、排序等字段。
+`season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`create`、`add`、`edit`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。创建合集调用 B 站创作中心的 `season/add` 接口，需要提供已上传的封面 URL；成功后可用 `season list` 找到新合集及其分区。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。`edit` 会先读取目标分区的完整条目，只替换合集内标题并保留 `aid`、`cid`、排序等字段。
 
 ```bash
 # 查看合集列表
 biliup season list -u /absolute/path/cookies.json
+
+# 预览并执行创建合集
+biliup season create --title "示例合集" \
+  --desc "示例简介" \
+  --cover "https://example.com/cover.jpg" --execute
 
 # 查看某个合集分区的视频
 biliup season episodes --section-id <section_id>
@@ -161,7 +166,7 @@ biliup season sort --season-id <season_id> --section-id <section_id> \
   --episode-id <episode_id_1> --episode-id <episode_id_2> --execute
 ```
 
-合集 ID、分区 ID 和 episode ID 来自 `season list` / `season episodes` 的返回值。CLI 不会自动把刚投稿的视频加入合集，也不会在未指定 `--execute` 时修改合集。
+合集 ID、分区 ID 和 episode ID 来自 `season list` / `season episodes` 的返回值。创建接口只负责创建合集，创建后如需加入视频，再使用 `season add`。CLI 不会自动把刚投稿的视频加入合集，也不会在未指定 `--execute` 时修改合集。创建和其他写操作都不会打印 Cookie 或 CSRF。
 
 ## 其他命令
 

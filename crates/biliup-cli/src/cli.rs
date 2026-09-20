@@ -241,6 +241,28 @@ pub enum SeasonCommands {
         #[arg(long, default_value = "30")]
         ps: u32,
     },
+    /// 创建新版合集，默认只预览请求
+    Create {
+        /// 合集标题
+        #[arg(long)]
+        title: String,
+
+        /// 合集简介
+        #[arg(long, default_value = "")]
+        desc: String,
+
+        /// 合集封面 URL
+        #[arg(long)]
+        cover: String,
+
+        /// 合集价格，免费合集保持为 0
+        #[arg(long, default_value = "0")]
+        season_price: u32,
+
+        /// 实际提交创建操作
+        #[arg(long)]
+        execute: bool,
+    },
     /// 查看合集分区内的视频
     Episodes {
         /// 合集分区 ID
@@ -484,6 +506,36 @@ mod tests {
                 biliup::uploader::bilibili::Vid::Bvid("BV1test".into()),
                 biliup::uploader::bilibili::Vid::Aid(123),
             ]
+        ));
+    }
+
+    #[test]
+    fn season_create_requires_title_and_cover_and_defaults_to_dry_run() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "season",
+            "create",
+            "--title",
+            "示例合集",
+            "--cover",
+            "https://example.com/cover.jpg",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Season {
+                command:
+                    super::SeasonCommands::Create {
+                        ref title,
+                        ref desc,
+                        ref cover,
+                        season_price: 0,
+                        execute: false,
+                    }
+            } if title == "示例合集"
+                && desc.is_empty()
+                && cover == "https://example.com/cover.jpg"
         ));
     }
 

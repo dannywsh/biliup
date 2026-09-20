@@ -5,8 +5,8 @@ use biliup_cli::cli::{Cli, Commands, GoodsCommands, SeasonCommands, expand_path}
 use biliup_cli::downloader::{download, generate_json};
 use biliup_cli::uploader::{
     append, comments, goods_attach, goods_search, list, login, renew, reply, season_add,
-    season_edit, season_episodes, season_list, season_remove, season_sort, show, top_reply,
-    upload_by_command, upload_by_config,
+    season_create, season_edit, season_episodes, season_list, season_remove, season_sort, show,
+    top_reply, upload_by_command, upload_by_config,
 };
 
 use clap::Parser;
@@ -151,6 +151,27 @@ async fn main() -> AppResult<()> {
         Commands::Season {
             command: SeasonCommands::List { pn, ps },
         } => season_list(user_cookie, pn, ps, cli.proxy.as_deref()).await?,
+        Commands::Season {
+            command:
+                SeasonCommands::Create {
+                    title,
+                    desc,
+                    cover,
+                    season_price,
+                    execute,
+                },
+        } => {
+            season_create(
+                user_cookie,
+                title,
+                desc,
+                cover,
+                season_price,
+                execute,
+                cli.proxy.as_deref(),
+            )
+            .await?
+        }
         Commands::Season {
             command: SeasonCommands::Episodes { section_id, sort },
         } => season_episodes(user_cookie, section_id, sort, cli.proxy.as_deref()).await?,

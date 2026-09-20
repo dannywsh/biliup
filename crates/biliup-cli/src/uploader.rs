@@ -362,6 +362,64 @@ pub async fn season_list(
     print_json(&seasons)
 }
 
+/// 构造创建合集的安全预览请求体。
+///
+/// 输入：合集标题、简介、封面 URL 和合集价格。
+/// 返回：不包含 CSRF 或 Cookie 的创建请求体，或返回参数校验错误。
+fn build_season_create_payload(
+    title: &str,
+    desc: &str,
+    cover: &str,
+    season_price: u32,
+) -> Result<Value, AppError> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(AppError::Custom("合集标题不能为空".to_string()));
+    }
+    let cover = cover.trim();
+    if cover.is_empty() {
+        return Err(AppError::Custom("合集封面 URL 不能为空".to_string()));
+    }
+    Ok(json!({
+        "title": title,
+        "desc": desc,
+        "cover": cover,
+        "season_price": season_price,
+    }))
+}
+
+/// 创建新版合集，默认只打印待提交请求。
+///
+/// 输入：登录凭据路径、合集标题、简介、封面 URL、价格、执行开关和可选代理。
+/// 返回：dry-run 时打印不含认证信息的请求体；执行时打印 B 站创建接口响应。
+pub async fn season_create(
+    user_cookie: PathBuf,
+    title: String,
+    desc: String,
+    cover: String,
+    season_price: u32,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let payload = build_season_create_payload(&title, &desc, &cover, season_price)?;
+    if !execute {
+        println!("dry-run: season create");
+        return print_json(&payload);
+    }
+
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let result = bilibili
+        .season_create(
+            payload["title"].as_str().unwrap_or_default(),
+            payload["desc"].as_str().unwrap_or_default(),
+            payload["cover"].as_str().unwrap_or_default(),
+            payload["season_price"].as_u64().unwrap_or_default() as u32,
+        )
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&result)
+}
+
 /// 查看指定合集分区中的视频。
 ///
 /// 输入：登录凭据路径、合集分区 ID、可选排序方式和可选代理。
@@ -1217,8 +1275,41 @@ impl Stream for Progressbar {
 
 #[cfg(test)]
 mod season_tests {
-    use super::build_season_edit_payload;
+    use super::{build_season_create_payload, build_season_edit_payload};
     use serde_json::json;
+
+    #[test]
+    fn create_payload_contains_only_safe_form_fields() {
+        let payload = build_season_create_payload(
+            "  示例合集  ",
+            "示例简介",
+            " https://example.com/cover.jpg ",
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(payload["title"], "示例合集");
+        assert_eq!(payload["desc"], "示例简介");
+        assert_eq!(payload["cover"], "https://example.com/cover.jpg");
+        assert_eq!(payload["season_price"], 0);
+        assert!(payload.get("csrf").is_none());
+    }
+
+    #[test]
+    fn create_payload_rejects_missing_title_or_cover() {
+        assert!(
+            build_season_create_payload(" ", "", "https://example.com/cover.jpg", 0)
+                .unwrap_err()
+                .to_string()
+                .contains("合集标题不能为空")
+        );
+        assert!(
+            build_season_create_payload("示例合集", "", " ", 0)
+                .unwrap_err()
+                .to_string()
+                .contains("合集封面 URL 不能为空")
+        );
+    }
 
     #[test]
     fn edit_payload_replaces_only_the_episode_title() {

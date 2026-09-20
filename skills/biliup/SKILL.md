@@ -1,13 +1,13 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, episodes, add, edit, remove, sort), and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购商品挂载、票务商品挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购商品挂载、票务商品挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
 ---
 
 # biliup
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection-entry title editing), and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
+This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection creation and collection-entry title editing), and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
 
 ## Install
 
@@ -164,7 +164,7 @@ biliup goods attach BV1xxx \
 
 ## Seasons / collections
 
-`season list` and `season episodes` are read-only. `season add`, `season edit`, `season remove`, and `season sort` are dry-run by default and require `--execute` for the write request. Keep the IDs distinct:
+`season list` and `season episodes` are read-only. `season create`, `season add`, `season edit`, `season remove`, and `season sort` are dry-run by default and require `--execute` for the write request. `season create` calls Bilibili's creator-center `season/add` endpoint with a title, description, uploaded cover URL, and price. Keep the IDs distinct:
 
 - `season_id`: the collection ID from `season list`.
 - `section_id`: the collection section ID from `season list`.
@@ -172,6 +172,8 @@ biliup goods attach BV1xxx \
 
 ```bash
 biliup season list -u /absolute/path/cookies.json
+biliup season create --title "示例合集" --desc "示例简介" \
+  --cover "https://example.com/cover.jpg" --execute
 biliup season episodes --section-id <section_id>
 biliup season add --section-id <section_id> --vid BV1xxx --execute
 biliup season edit --section-id <section_id> --episode-id <episode_id> \
@@ -181,7 +183,7 @@ biliup season sort --season-id <season_id> --section-id <section_id> \
   --episode-id <episode_id_1> --episode-id <episode_id_2> --execute
 ```
 
-For `season edit`, the CLI first reads the target section and preserves the full episode object while replacing only `title`. For `season sort`, pass every episode in the target section in its desired order. The CLI does not automatically add newly uploaded videos to a collection. Never print or paste cookie contents into logs, tests, or reports.
+After `season create` succeeds, use `season list` to obtain the new collection's section ID, then use `season add` to add videos. For `season edit`, the CLI first reads the target section and preserves the full episode object while replacing only `title`. For `season sort`, pass every episode in the target section in its desired order. The CLI does not automatically add newly uploaded videos to a collection. Never print or paste cookie contents, CSRF tokens, account IDs, or real video IDs into logs, tests, or reports.
 
 ## Server
 

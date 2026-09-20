@@ -815,6 +815,40 @@ impl BiliBili {
         .await
     }
 
+    /// 创建一个新版合集。
+    ///
+    /// 输入参数：`title` 为合集标题，`desc` 为简介，`cover` 为已上传的封面 URL，
+    /// `season_price` 为合集价格（免费合集传 0）。返回值：B 站接口返回的合集 ID。
+    pub async fn season_create(
+        &self,
+        title: &str,
+        desc: &str,
+        cover: &str,
+        season_price: u32,
+    ) -> Result<Value> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(Kind::Custom("合集标题不能为空".into()));
+        }
+        let cover = cover.trim();
+        if cover.is_empty() {
+            return Err(Kind::Custom("合集封面 URL 不能为空".into()));
+        }
+        let csrf = self.get_csrf()?.to_string();
+        self.season_request(
+            self.client
+                .post("https://member.bilibili.com/x2/creative/web/season/add")
+                .form(&[
+                    ("title", title.to_string()),
+                    ("desc", desc.to_string()),
+                    ("cover", cover.to_string()),
+                    ("season_price", season_price.to_string()),
+                    ("csrf", csrf),
+                ]),
+        )
+        .await
+    }
+
     /// 获取指定合集分区中的视频列表。
     ///
     /// 输入参数：`section_id` 为合集分区 ID，`sort` 为可选排序参数。
