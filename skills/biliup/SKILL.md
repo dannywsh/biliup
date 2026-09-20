@@ -30,7 +30,7 @@ unzip biliup-*-aarch64-macos.zip
 install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply`, `season`, and `goods`, `biliup upload --help` lists `--post-upload-goods` and `--cover43`, and `biliup goods attach --help` lists `--frame-title`.
+If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply`, `season`, and `goods`, `biliup upload --help` lists `--post-upload-goods`, `--cover43`, and `--tid-v2`, and `biliup goods attach --help` lists `--frame-title`.
 
 ## Upload with post-upload goods
 
