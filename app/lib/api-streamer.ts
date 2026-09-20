@@ -71,6 +71,7 @@ export interface StudioEntity {
 	copyright: number;
 	copyright_source: string;
 	tid: number;
+	tid_v2?: number | null;
 	cover_path: string;
 	title: string;
 	description: string;
@@ -99,7 +100,9 @@ export interface LiveStreamerEntity {
 	filename: string;
 	split_time?: number;
 	split_size?: number;
+	filename_prefix?: string;
 	upload_id?: number;
+	upload_streamers_id?: number | null;
 	status?: string;
 	upload_status?: string;
 	statusTag?: React.ReactNode;

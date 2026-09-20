@@ -157,7 +157,8 @@ def upload(video_path: List[str],
            extra_fields: Optional[str],
            submit: Optional[str],
            proxy: Optional[str],
-           cover43: str = "") -> None:
+           cover43: str = "",
+           tid_v2: Optional[int] = None) -> None:
 
     """
     上传视频稿件
@@ -166,6 +167,7 @@ def upload(video_path: List[str],
     :param str cookie_file: cookie文件路径
     :param str title: 视频标题
     :param int tid: 投稿分区
+    :param Optional[int] tid_v2: 新版投稿分区，不设置则不提交该字段
     :param str tag: 视频标签, 英文逗号分隔多个tag
     :param int copyright: 是否转载, 1-自制 2-转载
     :param str source: 转载来源

@@ -181,6 +181,11 @@ impl DownloadTask {
                 .download(&mut processor, ctx.clone(), danmaku_client.clone(), &stream)
                 .await;
 
+            // 失败原因只藏在结束时的 Debug 输出里会让用户以为下载器“什么都没做”
+            // （典型：边录边传缺少上传模板、cookie 失效）。
+            if let Err(e) = &components {
+                error!(url = url, error = ?e, "下载流程出错");
+            }
             info!("initialize_components completed: {url}");
 
             if self.token.is_cancelled() {
@@ -200,7 +205,8 @@ impl DownloadTask {
                     // 边录边传只有分 P 有实际推进才重置退避。管线的多数失败路径
                     // （空流、分段过小）返回 Ok(StreamEnded)，不能以 Ok/Err 判断；
                     // 否则拉流持续失败会零延迟重跑登录、preupload。
-                    // 非边录边传保持原行为（仍在直播即重置）。
+                    // 非边录边传：仅在分段成功或干净结束时立即续录；DownloadStatus::Error
+                    // 必须走指数退避，避免仍在直播时 0ns 热循环（issue #1682）。
                     let progressed = match &self.sync_session {
                         Some(session) => {
                             let committed = session.lock().await.committed_parts();
@@ -208,7 +214,7 @@ impl DownloadTask {
                             last_committed = committed;
                             progressed
                         }
-                        None => true,
+                        None => download_attempt_progressed(&components),
                     };
                     if progressed {
                         retry_count = 0;
@@ -259,13 +265,8 @@ impl DownloadTask {
                 max_retries
             );
 
-            // 计算指数退避延迟: delay = base_delay * 2^retry_count
-            let delay = if retry_count != 0 {
-                base_delay * 2_u32.pow(retry_count)
-            } else {
-                Duration::ZERO
-            };
-            let delay = delay.min(max_delay); // 限制最大延迟时间
+            // 计算指数退避延迟: delay = base_delay * 2^retry_count（成功分段时为 0）
+            let delay = retry_delay(retry_count, base_delay, max_delay);
 
             info!("Retrying download in {:?}...", delay);
             tokio::time::sleep(delay).await;
@@ -364,15 +365,41 @@ impl DownloadTask {
         // 如果底层下载函数不支持取消，这里不能真正中断正在进行的下载
         self.token.cancel();
         self.downloader.stop().await?;
-        // 清理设总时限：取消已传导到录制/上传/投稿各阶段，正常应立即退出；
-        // 万一后台请求卡住，也不能让 stop 无限挂起拖住整个 worker。
+        // 清理设总时限：取消已传导到录制阶段，正常应很快退出；
+        // 边录边传会继续把已录分段传完并投稿，可能远超 30 秒，让它在后台收尾即可，
+        // 不能让 stop 无限挂起拖住整个 worker。
         if tokio::time::timeout(Duration::from_secs(30), self.done_notify.notified())
             .await
             .is_err()
         {
-            warn!("等待下载任务退出超时（30 秒），继续关闭流程");
+            warn!("等待下载任务退出超时（30 秒），任务将在后台完成收尾，继续关闭流程");
         }
         Ok(())
+    }
+}
+
+
+/// Whether a finished download attempt counts as progress for live-retry backoff.
+///
+/// Successful segment completion and a clean stream end may retry immediately
+/// while the room is still live. Errors (and download `Err`s) must not reset the
+/// counter — otherwise still-Live rooms spam `Retrying download in 0ns...`.
+fn download_attempt_progressed(result: &AppResult<DownloadStatus>) -> bool {
+    matches!(
+        result,
+        Ok(DownloadStatus::SegmentCompleted) | Ok(DownloadStatus::StreamEnded)
+    )
+}
+
+/// Exponential backoff delay for the current `retry_count`.
+///
+/// `retry_count == 0` means "immediate next segment" (Duration::ZERO). Non-zero
+/// counts use `base_delay * 2^retry_count`, capped at `max_delay`.
+fn retry_delay(retry_count: u32, base_delay: Duration, max_delay: Duration) -> Duration {
+    if retry_count == 0 {
+        Duration::ZERO
+    } else {
+        (base_delay.saturating_mul(2_u32.saturating_pow(retry_count))).min(max_delay)
     }
 }
 
@@ -425,4 +452,38 @@ pub async fn start_download_workflow(
         ctx.live_streamer().url,
         ctx.status(Stage::Download)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::errors::AppError;
+    use error_stack::Report;
+
+    #[test]
+    fn segment_completed_and_stream_ended_count_as_progress() {
+        assert!(download_attempt_progressed(&Ok(DownloadStatus::SegmentCompleted)));
+        assert!(download_attempt_progressed(&Ok(DownloadStatus::StreamEnded)));
+    }
+
+    #[test]
+    fn download_error_and_err_do_not_count_as_progress() {
+        assert!(!download_attempt_progressed(&Ok(DownloadStatus::Error(
+            "Streamlink error: Some(1)".into()
+        ))));
+        assert!(!download_attempt_progressed(&Ok(DownloadStatus::Downloading)));
+        let err: AppResult<DownloadStatus> =
+            Err(Report::new(AppError::Custom("boom".into())));
+        assert!(!download_attempt_progressed(&err));
+    }
+
+    #[test]
+    fn retry_delay_is_zero_only_when_counter_reset() {
+        let base = Duration::from_secs(2);
+        let max = Duration::from_secs(60);
+        assert_eq!(retry_delay(0, base, max), Duration::ZERO);
+        assert_eq!(retry_delay(1, base, max), Duration::from_secs(4));
+        assert_eq!(retry_delay(2, base, max), Duration::from_secs(8));
+        assert_eq!(retry_delay(10, base, max), max);
+    }
 }
