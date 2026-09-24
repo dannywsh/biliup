@@ -8,8 +8,7 @@ const DISTINGUISH_URLS_URL: &str =
 const GOODS_DETAIL_URL: &str = "https://mall.bilibili.com/mall-cbp/web/shop_goods/id";
 const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionCart/item/add";
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
-const CREATE_CMC_TASK_URL: &str =
-    "https://mall.bilibili.com/mall-cbp/web/task/op/createCmcTask";
+const CREATE_CMC_TASK_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/createCmcTask";
 const MALL_PUBLIC_INFO_URL: &str = "https://mall.bilibili.com/mall-c-search/items/info";
 const TICKET_PUBLIC_INFO_URL: &str = "https://show.bilibili.com/api/ticket/project/getV2";
 const GOODS_SEARCH_PAGE: u32 = 1;
@@ -222,9 +221,44 @@ pub fn build_attach_payload(
     })
 }
 
+/// 从单商品挂载计划中提取视频框下展示位。
+///
+/// 输入：已完成商品识别的挂载计划和商品 ID。返回：可放入 `createCmcTask` 的视频框下详情；
+/// 若计划缺少视频框下标题或主图则返回错误。
+fn under_video_detail_info(plan: &GoodsAttachPlan, item_id: &str) -> Result<Value> {
+    let under_video_info = plan
+        .attach_payload
+        .get("cmcInfos")
+        .and_then(Value::as_array)
+        .and_then(|infos| {
+            infos.iter().find(|info| {
+                info.get("cmcPlaceType").and_then(Value::as_u64)
+                    == Some(UNDER_VIDEO_PLACE_TYPE as u64)
+            })
+        })
+        .ok_or_else(|| Kind::Custom("商品挂载计划缺少视频框下展示位".to_string()))?;
+    let title = under_video_info
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.is_empty())
+        .ok_or_else(|| Kind::Custom("视频框下展示位缺少标题".to_string()))?;
+    let image_url = under_video_info
+        .get("imageUrl")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .ok_or_else(|| Kind::Custom("视频框下展示位缺少主图".to_string()))?;
+    Ok(json!({
+        "cmcPlaceType": UNDER_VIDEO_PLACE_TYPE,
+        "itemId": item_id,
+        "imageUrl": image_url,
+        "title": title,
+    }))
+}
+
 /// 构造一条评论蓝链的多商品挂载请求体。
 ///
-/// 输入：已完成商品识别的挂载计划、视频 AID。返回：`createCmcTask` 请求体；多个商品共用一个 `detailInfos`。
+/// 输入：已完成商品识别的挂载计划、视频 AID。返回：`createCmcTask` 请求体；
+/// 多个商品共用一个 `detailInfos`，且每个商品都配置视频框下展示位。
 pub fn build_cmc_task_payload(plans: &[GoodsAttachPlan], aid: u64) -> Result<Value> {
     if plans.is_empty() {
         return Err(Kind::Custom("评论蓝链至少需要一个商品".to_string()));
@@ -237,52 +271,15 @@ pub fn build_cmc_task_payload(plans: &[GoodsAttachPlan], aid: u64) -> Result<Val
     }
     let detail_infos = plans
         .iter()
-        .enumerate()
-        .map(|(index, plan)| {
+        .map(|plan| {
             let item_id = required_item_id(&plan.item)?;
-            let title = required_string(&plan.item, "goodsName")?;
-            let cmc_info = plan
-                .attach_payload
-                .get("cmcInfos")
-                .and_then(Value::as_array)
-                .and_then(|infos| {
-                    infos.iter().find(|info| {
-                        info.get("cmcPlaceType").and_then(Value::as_u64)
-                            == Some(DEFAULT_CARD_PLACE_TYPE as u64)
-                    })
-                })
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            let another_name = cmc_info
-                .get("anotherName")
-                .and_then(Value::as_str)
-                .filter(|name| *name != title)
-                .unwrap_or("");
-            let prefix_text = if index == 0 {
-                cmc_info
-                    .get("prefixText")
-                    .and_then(Value::as_str)
-                    .filter(|text| !text.is_empty())
-                    .map(|text| format!("{text}\n"))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            let postfix_text = if index + 1 < plans.len() { "\n" } else { "" };
-            Ok(json!({
-                "cmcPlaceType": DEFAULT_CARD_PLACE_TYPE,
-                "title": title,
-                "itemId": item_id,
-                "anotherName": another_name,
-                "postfixText": postfix_text,
-                "prefixText": prefix_text,
-            }))
+            under_video_detail_info(plan, &item_id)
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(json!({
         "cmcInfos": [{
             "avId": aid.to_string(),
-            "fromType": 3,
+            "fromType": 7,
             "masTaskId": 0,
             "detailInfos": detail_infos,
         }],
@@ -917,10 +914,7 @@ impl BiliBili {
     /// 执行多个商品合并为一条评论蓝链的挂载。
     ///
     /// 输入：已完成预检的商品计划。返回：选品车响应数组与单条评论挂载响应。
-    pub async fn execute_cmc_task(
-        &self,
-        plans: &[GoodsAttachPlan],
-    ) -> Result<(Value, Value)> {
+    pub async fn execute_cmc_task(&self, plans: &[GoodsAttachPlan]) -> Result<(Value, Value)> {
         if plans.len() > MAX_COMMENT_GOODS {
             return Err(Kind::Custom(format!(
                 "一条评论蓝链最多挂载 {MAX_COMMENT_GOODS} 个商品，当前为 {} 个",
@@ -944,13 +938,9 @@ impl BiliBili {
             .and_then(|value| value.parse::<u64>().ok())
             .ok_or_else(|| Kind::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
         let payload = build_cmc_task_payload(plans, aid)?;
-        let result = self
-            .mall_json_post(CREATE_CMC_TASK_URL, &payload)
-            .await?;
+        let result = self.mall_json_post(CREATE_CMC_TASK_URL, &payload).await?;
         if result.get("code").and_then(Value::as_i64) != Some(0) {
-            return Err(Kind::Custom(format!(
-                "评论蓝链挂载接口返回失败：{result}"
-            )));
+            return Err(Kind::Custom(format!("评论蓝链挂载接口返回失败：{result}")));
         }
         Ok((Value::Array(cart_results), result))
     }
@@ -961,10 +951,10 @@ mod tests {
     use super::{
         DEFAULT_CARD_PLACE_TYPE, GoodsAttachPlan, UNDER_VIDEO_PLACE_TYPE,
         UNDER_VIDEO_TITLE_MAX_CHARS, build_attach_payload, build_cart_payload,
-        build_cmc_task_payload,
-        collect_failed_res_codes, distinguish_goods_items, normalize_goods_url,
-        parse_main_image_url, parse_mall_public_detail, parse_ticket_public_detail,
-        summarize_goods_item, truncate_chars, under_video_title, validate_expected_item_id,
+        build_cmc_task_payload, collect_failed_res_codes, distinguish_goods_items,
+        normalize_goods_url, parse_main_image_url, parse_mall_public_detail,
+        parse_ticket_public_detail, summarize_goods_item, truncate_chars, under_video_title,
+        validate_expected_item_id,
     };
     use serde_json::json;
 
@@ -1129,24 +1119,56 @@ mod tests {
     #[test]
     fn cmc_task_payload_puts_multiple_goods_in_one_comment() {
         let first = GoodsAttachPlan {
-            item: json!({"itemId": "13667449", "goodsName": "角川 英雄传说 轨迹系列 版画"}),
+            item: json!({"itemId": "10000001", "goodsName": "示例商品 A"}),
             cart_payload: json!({}),
-            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12, "anotherName": "角川 英雄传说 轨迹系列 版画", "prefixText": "大家都想要的同款，都在这里啦！", "postfixText": ""}]}),
+            attach_payload: json!({"cmcInfos": [
+                {"cmcPlaceType": 1, "title": "示例三款周边", "imageUrl": "https://example.com/first.png", "style": 1, "masTaskId": ""},
+                {"cmcPlaceType": 12, "anotherName": "示例商品 A", "prefixText": "示例前缀", "postfixText": ""}
+            ]}),
         };
         let second = GoodsAttachPlan {
-            item: json!({"itemId": "13667450", "goodsName": "角川 英雄传说 轨迹系列 毛绒玩偶挂件"}),
+            item: json!({"itemId": "10000002", "goodsName": "示例商品 B"}),
             cart_payload: json!({}),
-            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12, "anotherName": "角川 英雄传说 轨迹系列 毛绒玩偶挂件", "prefixText": "", "postfixText": ""}]}),
+            attach_payload: json!({"cmcInfos": [
+                {"cmcPlaceType": 1, "title": "示例三款周边", "imageUrl": "https://example.com/second.png", "style": 1, "masTaskId": ""},
+                {"cmcPlaceType": 12, "anotherName": "示例商品 B", "prefixText": "", "postfixText": ""}
+            ]}),
         };
-        let payload = build_cmc_task_payload(&[first, second], 117251432844284).unwrap();
+        let payload = build_cmc_task_payload(&[first, second], 123456789).unwrap();
         assert_eq!(payload["requestFrom"], json!(109));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["itemId"], json!("13667449"));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["itemId"], json!("13667450"));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["prefixText"], json!("大家都想要的同款，都在这里啦！\n"));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][0]["postfixText"], json!("\n"));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["prefixText"], json!(""));
-        assert_eq!(payload["cmcInfos"][0]["detailInfos"][1]["postfixText"], json!(""));
+        assert_eq!(payload["cmcInfos"][0]["fromType"], json!(7));
+        let detail_infos = payload["cmcInfos"][0]["detailInfos"].as_array().unwrap();
+        assert_eq!(detail_infos.len(), 2);
+        assert!(detail_infos.iter().all(|info| {
+            info["cmcPlaceType"] == json!(UNDER_VIDEO_PLACE_TYPE)
+                && info.get("itemId").is_some()
+                && info.get("imageUrl").is_some()
+                && info.get("title").is_some()
+                && info.as_object().is_some_and(|fields| fields.len() == 4)
+        }));
+        assert_eq!(detail_infos[0]["itemId"], json!("10000001"));
+        assert_eq!(detail_infos[0]["title"], json!("示例三款周边"));
+        assert_eq!(
+            detail_infos[0]["imageUrl"],
+            json!("https://example.com/first.png")
+        );
+        assert_eq!(detail_infos[1]["itemId"], json!("10000002"));
+        assert_eq!(detail_infos[1]["title"], json!("示例三款周边"));
+        assert_eq!(
+            detail_infos[1]["imageUrl"],
+            json!("https://example.com/second.png")
+        );
+    }
+
+    #[test]
+    fn cmc_task_payload_rejects_plan_without_under_video_placement() {
+        let plan = GoodsAttachPlan {
+            item: json!({"itemId": "12345678", "goodsName": "示例商品"}),
+            cart_payload: json!({}),
+            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12}]}),
+        };
+        let error = build_cmc_task_payload(&[plan], 1).unwrap_err().to_string();
+        assert!(error.contains("缺少视频框下展示位"));
     }
 
     #[test]

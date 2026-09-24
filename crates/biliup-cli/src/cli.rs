@@ -359,7 +359,7 @@ pub enum GoodsCommands {
         #[arg(long, default_value = "0")]
         index: usize,
 
-        /// 带货编辑展示位，默认 12；始终同时挂视频框下
+        /// 单商品带货编辑展示位，默认 12；多商品 createCmcTask 使用视频框下展示位
         #[arg(long, default_value = "12")]
         place_type: u32,
 

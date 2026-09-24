@@ -103,7 +103,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## 商品挂载
 
-`goods` 把商品挂到**已发布**视频，不是发评论。带货评论继续用 `reply` / `top-reply`。一次挂载会同时提交两个展示位：
+`goods` 把商品挂到**已发布**视频，不是发评论。带货评论继续用 `reply` / `top-reply`。单商品挂载会同时提交两个展示位：
 
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
 - 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
@@ -114,7 +114,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 `goods attach` 仍只适用于可挂载的会员购商品。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
-一次可以挂载多个商品：重复传入 `--query`、一次传入多个值，或用英文逗号分隔。程序会先完成所有商品识别和商品 ID 校验，再把多个商品放进一次 `createCmcTask` 请求的 `detailInfos`，生成一条评论蓝链；单条评论最多 20 个商品。第一项使用传入的前缀文案并自动追加换行；未传前缀时保持为空，中间商品使用换行后缀，保证商品逐行展示。`--expected-item-id` 可传一个值应用于全部商品，也可按商品顺序传多个值。
+一次可以挂载多个商品：重复传入 `--query`、一次传入多个值，或用英文逗号分隔。程序会先完成所有商品识别和商品 ID 校验，再把全部商品放入一次 `createCmcTask` 请求的 `detailInfos`，每个商品都配置独立的视频框下展示位（`cmcPlaceType=1`、商品 ID、主图和标题），并生成一条评论蓝链；请求使用 `fromType=7`，单条评论最多 20 个商品。`--frame-title` 用作每个商品框下展示位的标题；多商品请求不添加 `cmcPlaceType=12` 带货编辑卡。`--expected-item-id` 可传一个值应用于全部商品，也可按商品顺序传多个值。
 
 稿件审核中（`archive.state=-30`）已验证可以直接挂载商品，不需要等待审核通过；先 dry-run 核对商品和展示位，再加 `--execute` 提交。只有挂载接口明确因审核状态拒绝时，才每 3 分钟重新检查一次。审核拒绝（`archive.state=-2`）则停止挂载并处理 `reject_reason`。
 

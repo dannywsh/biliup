@@ -66,19 +66,19 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## Membership Shop goods
 
-`goods attach` is dry-run unless `--execute` is passed. One attach writes two placements at once:
+`goods attach` is dry-run unless `--execute` is passed. A single-product attach writes two placements at once:
 
 - under the player (`cmcPlaceType=1`): `--frame-title` + product `main_image_url`
 - 带货编辑 card (default `cmcPlaceType=12`): `--prefix-text` / `--postfix-text` / `--another-name`
 
 This is not a comment; use `reply` / `top-reply` for 带货评论. If the video was just uploaded and goods will be attached after review, the upload must use `--submit web --post-upload-goods`.
 
-For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array; maximum 20 products. Do not attach each product separately, or multiple comments will be created. Use the user-provided `--prefix-text` only for the first product and append `\\n` when non-empty; leave it empty when omitted. Set `postfixText` to `\\n` for non-final products and empty for the final product; keep `anotherName` empty by default.
+For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array and `fromType=7`; maximum 20 products. Every product detail must use `cmcPlaceType=1` with that product's own `itemId` and `main_image_url`, plus the shared `--frame-title`. Do not add `cmcPlaceType=12` details to this multi-product request and do not attach each product separately, or multiple comments may be created. The single-product `batch/commit` flow still uses both under-player and card placements.
 
 ```bash
 biliup goods attach BVxxxx \
-  --query 13667449 --query 13667450 \
-  --expected-item-id 13667449 --expected-item-id 13667450 \
+  --query 10000001 --query 10000002 \
+  --expected-item-id 10000001 --expected-item-id 10000002 \
   --prefix-text '快来看看～' --execute
 ```
 
@@ -131,7 +131,7 @@ Content must identify the attached SKU:
 - Accessory SKU → accessory wording; main SKU → not accessory wording.
 - Do not invent selling points absent from the product name or the user's notes.
 
-On dry-run, check `attach.cmcInfos`: first item `cmcPlaceType=1`, `title` ≤ 12, `imageUrl` non-empty; second item `cmcPlaceType=12`.
+On dry-run, check `attach.cmcInfos`: for one product, confirm the `batch/commit` array has under-player and card placements; for multiple products, confirm `fromType=7` and every `detailInfos` item has `cmcPlaceType=1`, its own `itemId`, `title` ≤ 12, and non-empty `imageUrl`.
 
 ### Attach workflow
 
