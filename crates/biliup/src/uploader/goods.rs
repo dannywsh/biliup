@@ -2,6 +2,7 @@ use super::bilibili::{BiliBili, Vid};
 use crate::error::{Kind, Result};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const DISTINGUISH_URLS_URL: &str =
     "https://mall.bilibili.com/mall-cbp/web/cmc/goods/distinguish/urls";
@@ -10,6 +11,8 @@ const ADD_TO_CART_URL: &str = "https://mall.bilibili.com/mall-cbp/web/selectionC
 const ATTACH_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/batch/commit";
 const CREATE_CMC_TASK_URL: &str = "https://mall.bilibili.com/mall-cbp/web/task/op/createCmcTask";
 const MALL_PUBLIC_INFO_URL: &str = "https://mall.bilibili.com/mall-c-search/items/info";
+const MALL_MERCHANT_INFO_URL: &str =
+    "https://mall.bilibili.com/mall-search-items/items/merchant/info";
 const TICKET_PUBLIC_INFO_URL: &str = "https://show.bilibili.com/api/ticket/project/getV2";
 const GOODS_SEARCH_PAGE: u32 = 1;
 const ITEM_URL_TEMPLATE: &str = "https://mall.bilibili.com/detail.html?from=card_item&jumpLinkType=0&loadingShow=1&noTitleBar=1#goFrom=na&itemsId={item_id}&noReffer=true";
@@ -114,6 +117,7 @@ pub fn summarize_goods_item(item: &Value, index: usize) -> Value {
         "images": detail.get("images"),
         "description": detail.get("description"),
         "summary": detail.get("summary"),
+        "promotions": detail.get("promotions"),
         "detail": detail,
     })
 }
@@ -412,10 +416,101 @@ fn absolute_image_url(url: &str) -> Option<String> {
     }
 }
 
+/// 整理会员购响应中的促销字段，保留活动类型、领券活动和 SKU 对应的促销标记。
+/// 输入：`merchant/info` 返回的商品 `data` 对象。返回：可直接展示的促销 JSON。
+fn summarize_mall_promotions(data: &Value) -> Value {
+    let activity_keys = [
+        "promotionActivityInfo",
+        "multiDiscountActivityInfoVO",
+        "europeanCompassActivityInfoVO",
+        "luckyBuySubsideActivityInfoVO",
+        "progressActivityInfoVO",
+        "instantDiscountActivity",
+        "fansPriceActivityVO",
+        "giftActivityVO",
+        "cityDiscountActivityVO",
+        "earlyBuyActivityInfo",
+    ];
+    let activities = activity_keys
+        .iter()
+        .filter_map(|key| {
+            data.get(*key)
+                .filter(|value| !value.is_null())
+                .map(|value| ((*key).to_string(), value.clone()))
+        })
+        .collect::<serde_json::Map<String, Value>>();
+    let skus = data
+        .pointer("/itemsSkuListVO/itemsSkuList")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|sku| {
+                    json!({
+                        "skuId": sku.get("id"),
+                        "specValues": sku.get("specValues"),
+                        "price": sku.get("price"),
+                        "activityPrice": sku.get("activityPrice"),
+                        "deposit": sku.get("deposit"),
+                        "activityDeposit": sku.get("activityDeposit"),
+                        "stock": sku.get("stock"),
+                        "canAddCart": sku.get("canAddCart"),
+                        "activityTags": sku.pointer("/skuTagVO/activityTagList"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let package = data.get("couponPackageInfoVO");
+    let package_info = package.and_then(|value| value.get("packagePopInfoVO"));
+    let package_coupons = package_info
+        .and_then(|value| value.get("couponInfoList"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let coupon_list = data
+        .pointer("/activityInfoVO/couponList")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+
+    json!({
+        "activityPrice": data.get("activityPrice"),
+        "activityOriginalPrice": data.get("activityOriginalPrice"),
+        "maxActivityPrice": data.get("maxActivityPrice"),
+        "maxActivityOriginalPrice": data.get("maxActivityOriginalPrice"),
+        "activityDepositPrice": data.get("activityDepositPrice"),
+        "activityOriginalDepositPrice": data.get("activityOriginalDepositPrice"),
+        "priceBenefitInfo": data.get("priceBenefitInfo"),
+        "marketingPriceText": data.get("marketingPriceTextControlled"),
+        "netPriceExpression": data.get("netPriceExpression"),
+        "netPriceUseCouponPackage": data.get("netPriceUseCouponPackage"),
+        "netPriceCouponIds": data.get("netPriceCounponList"),
+        "isFlash": data.get("isFlash"),
+        "activityTags": data.get("activityTags"),
+        "activities": activities,
+        "couponActivity": {
+            "showLabel": data.pointer("/activityInfoVO/showLabel"),
+            "coupons": coupon_list,
+        },
+        "couponPackage": {
+            "received": package.and_then(|value| value.get("received")),
+            "autoReceive": package.and_then(|value| value.get("autoReceive")),
+            "showCouponType": package.and_then(|value| value.get("showCouponType")),
+            "barInfo": package.and_then(|value| value.get("packageBarInfoVO")),
+            "coupons": package_coupons,
+        },
+        "newUserCoupons": data
+            .get("allNewUserPackageCouponList")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
+        "skus": skus,
+    })
+}
+
 /// 从公开会员购详情响应提取可读商品信息。
-/// 输入：`items/info` 的完整 JSON 和兜底 itemId。返回：标准化详情对象。
+/// 输入：`merchant/info` 或旧版 `items/info` 的完整 JSON 和兜底 itemId。返回：标准化详情对象。
 pub fn parse_mall_public_detail(response: &Value, fallback_item_id: &str) -> Option<Value> {
-    let data = response.get("data")?.as_object()?;
+    let data_value = response.get("data")?;
+    let data = data_value.as_object()?;
     if response.get("success").and_then(Value::as_bool) == Some(false) {
         return None;
     }
@@ -452,6 +547,7 @@ pub fn parse_mall_public_detail(response: &Value, fallback_item_id: &str) -> Opt
         .or_else(|| data.get("maxPrice"))
         .map(detail_string)
         .unwrap_or_default();
+    let promotions = summarize_mall_promotions(data_value);
     let mut summary = vec![data.get("name").map(detail_string).unwrap_or_default()];
     if let Some(brand) = data
         .get("brandName")
@@ -471,6 +567,7 @@ pub fn parse_mall_public_detail(response: &Value, fallback_item_id: &str) -> Opt
         "price": if price.is_empty() { String::new() } else { format!("{price}元") },
         "attrs": attrs, "images": images,
         "url": format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
+        "promotions": promotions,
         "summary": summary.into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("，"),
     }))
 }
@@ -739,26 +836,54 @@ impl BiliBili {
     ) -> Result<Value> {
         let response = self.client.get(url)
             .query(query)
-            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             .header("Referer", referer)
             .header("Accept", "application/json,text/plain,*/*")
             .send().await?;
         Self::json_from_response(response).await
     }
 
+    /// 获取会员购公开详情和促销信息，merchant/info 失败时回退到旧版详情接口。
+    /// 输入：商品 itemId。返回：已规范化的商品详情；两个公开接口都不可用时返回 None。
+    async fn mall_public_detail(&self, item_id: &str) -> Option<Value> {
+        let version = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .to_string();
+        let referer = format!(
+            "https://mall.bilibili.com/neul-next/detailuniversal/detail.html?page=detailuniversal_detail&itemsId={item_id}&noTitleBar=1"
+        );
+        let merchant_query = [
+            ("itemsId", item_id),
+            ("shopId", ""),
+            ("itemsVersion", ""),
+            ("from", ""),
+            ("themeMode", "1"),
+            ("v", version.as_str()),
+        ];
+        if let Some(detail) = self
+            .public_json_get(MALL_MERCHANT_INFO_URL, &merchant_query, &referer)
+            .await
+            .ok()
+            .and_then(|payload| parse_mall_public_detail(&payload, item_id))
+        {
+            return Some(detail);
+        }
+        self.public_json_get(
+            MALL_PUBLIC_INFO_URL,
+            &[("itemsId", item_id)],
+            &format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
+        )
+        .await
+        .ok()
+        .and_then(|payload| parse_mall_public_detail(&payload, item_id))
+    }
+
     /// 将公开详情附加到识别结果，保留原商品字段以兼容挂载流程。
     /// 输入：识别结果和详情查询 ID。返回：包含 `detail` 的商品对象。
     async fn enrich_goods_item(&self, mut item: Value, item_id: &str) -> Value {
-        let detail = self
-            .public_json_get(
-                MALL_PUBLIC_INFO_URL,
-                &[("itemsId", item_id)],
-                &format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
-            )
-            .await
-            .ok()
-            .and_then(|payload| parse_mall_public_detail(&payload, item_id));
-        if let Some(detail) = detail {
+        if let Some(detail) = self.mall_public_detail(item_id).await {
             if let Some(object) = item.as_object_mut() {
                 object.insert("detail".to_string(), detail);
             }
@@ -818,21 +943,12 @@ impl BiliBili {
                 return Ok(enriched);
             }
         }
-        let mall_payload = self
-            .public_json_get(
-                MALL_PUBLIC_INFO_URL,
-                &[("itemsId", &item_id)],
-                &format!("https://mall.bilibili.com/detail.html?itemsId={item_id}"),
-            )
-            .await;
-        if let Ok(payload) = mall_payload {
-            if let Some(detail) = parse_mall_public_detail(&payload, &item_id) {
-                return Ok(vec![json!({
-                    "itemId": detail.get("itemsId"), "goodsName": detail.get("name"),
-                    "price": detail.get("price"), "jumpUrl": detail.get("url"),
-                    "detail": detail,
-                })]);
-            }
+        if let Some(detail) = self.mall_public_detail(&item_id).await {
+            return Ok(vec![json!({
+                "itemId": detail.get("itemsId"), "goodsName": detail.get("name"),
+                "price": detail.get("price"), "jumpUrl": detail.get("url"),
+                "detail": detail,
+            })]);
         }
         if numeric_query {
             return Ok(vec![self.search_ticket_goods(&item_id).await?]);

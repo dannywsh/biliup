@@ -1,6 +1,6 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购商品挂载、票务商品挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), inspect Membership Shop promotions by itemId, and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购促销查询、商品挂载、票务挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
 ---
 
 # biliup
@@ -99,6 +99,12 @@ biliup goods search 'https://show.bilibili.com/platform/detail.html?id=1004629'
 ```
 
 Success output includes `itemId`, `goodsName`, `sourceType` (`5` for Membership Shop alliance), and `jumpUrl` (`mall.bilibili.com`). On identification failure, report the API output and ask the user to verify the URL or itemId.
+
+### Read Membership Shop promotions
+
+Use `biliup goods search <itemId>` when the user wants product activity or discount information and has a numeric Membership Shop itemId. The result includes `promotions` with direct activity prices, activity types (including 欧气宝箱), coupon activity, new-user coupon package data when returned, and SKU-level prices, stock, and activity tags. For URLs, the same fields are included when the URL resolves to a Membership Shop product.
+
+Report activity periods and coupon thresholds from the returned fields. Treat coupon availability and new-user packages as account-dependent; do not state a threshold coupon as a guaranteed final price. Check SKU-level stock and `canAddCart` before describing which variants are currently purchasable. If the richer mobile detail endpoint is unavailable, `goods search` falls back to the older public details endpoint, whose promotion fields may be empty.
 
 ### Review state before attach
 

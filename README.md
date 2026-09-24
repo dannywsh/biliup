@@ -110,7 +110,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 `goods search` 接受会员购链接、票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 或纯数字 `itemId`。纯数字会先按会员购商品识别；会员购识别失败时会读取公开详情接口，票务页则直接读取票务详情。命令不按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。
 
-搜索结果除挂载所需的 `itemId`、`goodsName`、`sourceType`、价格和跳转链接外，还会返回 `detail` 及其摘要字段：会员购包含品牌、分类、属性、图片和摘要；票务包含城市、场馆、地址、演出日期、票价、商家、图片、简介和摘要。公开详情接口异常时，会员购仍会返回原有识别结果。票务详情用于检索展示，不能据此直接执行会员购挂载。
+搜索结果除挂载所需的 `itemId`、`goodsName`、`sourceType`、价格和跳转链接外，还会返回 `detail` 及其摘要字段：会员购包含品牌、分类、属性、图片、摘要和 `promotions`；票务包含城市、场馆、地址、演出日期、票价、商家、图片、简介和摘要。会员购促销信息来自移动详情页同源的 `mall-search-items/items/merchant/info` 公开接口，包括直降价、欧气宝箱等活动、优惠券、新人券包及 SKU 级活动标签；接口失败时回退到原 `mall-c-search/items/info`。用户资格券和库存状态以实际详情页/结算页为准。票务详情用于检索展示，不能据此直接执行会员购挂载。
 
 `goods attach` 仍只适用于可挂载的会员购商品。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 

@@ -341,9 +341,9 @@ pub enum SeasonCommands {
 
 #[derive(Subcommand)]
 pub enum GoodsCommands {
-    /// 通过商品链接或 itemId 精确识别可挂载会员购商品
+    /// 按商品链接或 itemId 精确查询商品；会员购结果包含活动、优惠券和 SKU 促销信息
     Search {
-        /// 商品链接或纯数字 itemId
+        /// 商品链接或纯数字 itemId；会员购商品可直接输入 itemId 查询促销
         query: String,
     },
     /// 预览或执行商品挂载，默认只打印将要提交的内容
