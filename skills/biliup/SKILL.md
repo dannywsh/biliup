@@ -73,6 +73,22 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 This is not a comment; use `reply` / `top-reply` for 带货评论. If the video was just uploaded and goods will be attached after review, the upload must use `--submit web --post-upload-goods`.
 
+### Audience-facing goods copy
+
+- Treat `--prefix-text`, `--postfix-text`, and `reply` text as copy for viewers, not an API summary or customer-service notice. Keep it brief, conversational, and easy to act on: mention one verified hook, then invite the viewer to open the product link.
+- For one product's goods-card copy, aim for **about 15 Unicode characters** in total, counting Chinese characters, letters, digits, and punctuation equally. This is a guide, not a hard cap: keep wording natural, light, and direct; avoid overly polite customer-service phrasing or awkward compression. If both `--prefix-text` and `--postfix-text` are used, count them together as a rough guide. Include a verified promotion hook or a clear invitation to open the product link; include both when they fit naturally. Follow an explicit hard character limit when the user provides one. Vary the click invitation to fit the product and promotion; do not reuse one fixed CTA across every item. Because the goods copy appears immediately before the link, refer to it as “商品链接” or simply “链接”; reserve “评论区” for video narration or the video description.
+- When verified coupon data exists, highlight the coupon and invite viewers to open the product link in wording that fits the sentence; do not list redemption dates or every threshold unless the user asks or a condition must be stated to avoid a misleading claim. For a verified prize/treasure-box promotion, lively wording such as “欧气宝箱出没中” or “去商品链接碰碰运气～” is appropriate; never promise that everyone will win.
+- Do not proactively mention an activity's start date or time in audience-facing goods copy. If it has not started, do not say that the benefit is already active; state the verified benefit neutrally and invite viewers to check the product link for details.
+- Do not claim universal coupon eligibility, a guaranteed final price, guaranteed prizes, unsupported scarcity, or benefits that do not apply to the attached SKU. If eligibility or stock is uncertain, invite viewers to check the offer rather than presenting it as guaranteed.
+
+Examples (include only benefits actually returned for the attached item):
+
+```text
+前80名尾款有优惠哦，点商品链接看看～
+优惠券也有，商品链接里瞧瞧～
+欧气宝箱出没中，去商品链接碰碰运气～
+```
+
 For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array and `fromType=7`; maximum 20 products. Every product detail must use `cmcPlaceType=1` with that product's own `itemId` and `main_image_url`, plus the shared `--frame-title`. Do not add `cmcPlaceType=12` details to this multi-product request and do not attach each product separately, or multiple comments may be created. The single-product `batch/commit` flow still uses both under-player and card placements.
 
 ```bash
@@ -104,7 +120,7 @@ Success output includes `itemId`, `goodsName`, `sourceType` (`5` for Membership 
 
 Use `biliup goods search <itemId>` when the user wants product activity or discount information and has a numeric Membership Shop itemId. The result includes `promotions` with direct activity prices, activity types (including 欧气宝箱), coupon activity, new-user coupon package data when returned, and SKU-level prices, stock, and activity tags. For URLs, the same fields are included when the URL resolves to a Membership Shop product.
 
-Report activity periods and coupon thresholds from the returned fields. Treat coupon availability and new-user packages as account-dependent; do not state a threshold coupon as a guaranteed final price. Check SKU-level stock and `canAddCart` before describing which variants are currently purchasable. If the richer mobile detail endpoint is unavailable, `goods search` falls back to the older public details endpoint, whose promotion fields may be empty.
+Use the returned fields to verify status, dates, thresholds, account eligibility, SKU applicability, and stock. When the user asks for a complete promotion explanation, report relevant dates and coupon conditions accurately. For short audience-facing sales copy, distill the most appealing verified benefit; coupon usability dates and every threshold are usually unnecessary. Treat coupon availability and new-user packages as account-dependent; do not state a threshold coupon as a guaranteed final price. Check SKU-level stock and `canAddCart` before describing which variants are currently purchasable. If the richer mobile detail endpoint is unavailable, `goods search` falls back to the older public details endpoint, whose promotion fields may be empty.
 
 ### Review state before attach
 
