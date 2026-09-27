@@ -346,6 +346,20 @@ pub enum GoodsCommands {
         /// 商品链接或纯数字 itemId；会员购商品可直接输入 itemId 查询促销
         query: String,
     },
+    /// 预览或加入商品到选品车，默认只打印将要提交的内容
+    Cart {
+        /// 商品链接或纯数字 itemId；可重复传入或一次传入多个值
+        #[arg(short, long, num_args = 1..)]
+        query: Vec<String>,
+
+        /// 搜索结果下标，默认 0
+        #[arg(long, default_value = "0")]
+        index: usize,
+
+        /// 实际加入选品车
+        #[arg(long)]
+        execute: bool,
+    },
     /// 预览或执行商品挂载，默认只打印将要提交的内容
     Attach {
         /// vid为稿件 av 或 bv 号

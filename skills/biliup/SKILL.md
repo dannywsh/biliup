@@ -1,13 +1,13 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), inspect Membership Shop promotions by itemId, and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods attach). Use for B站会员购促销查询、商品挂载、票务挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), inspect Membership Shop promotions by itemId, add Membership Shop goods to the selection cart, and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods cart, goods attach). Use for B站会员购促销查询、商品挂载、票务挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
 ---
 
 # biliup
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection creation and collection-entry title editing), and `goods`. Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
+This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection creation and collection-entry title editing), and `goods` (`search`, `cart`, and `attach`). Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
 
 ## Install
 
@@ -66,7 +66,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## Membership Shop goods
 
-`goods attach` is dry-run unless `--execute` is passed. A single-product attach writes two placements at once:
+`goods cart` adds Membership Shop items to the selection cart without requiring a video. It is dry-run unless `--execute` is passed. `goods attach` also adds an item to the selection cart when needed, then attaches it to a published video; it is dry-run unless `--execute` is passed. A single-product attach writes two placements at once:
 
 - under the player (`cmcPlaceType=1`): `--frame-title` + product `main_image_url`
 - 带货编辑 card (default `cmcPlaceType=12`): `--prefix-text` / `--postfix-text` / `--another-name`
@@ -157,7 +157,7 @@ On dry-run, check `attach.cmcInfos`: for one product, confirm the `batch/commit`
 
 ### Attach workflow
 
-1. `goods search` with mall URL or itemId; confirm identity.
+1. `goods search` with mall URL or itemId; confirm identity. To add an item without attaching it to a video, use `goods cart --query <itemId>` to preview and add `--execute` to submit. No video ID or duplicate expected item ID is needed. Multiple items can be passed with repeated `--query` flags.
 2. `biliup show <vid>` for review state; both passed (`0`) and verified in-review (`-30`) states may proceed to attach. Do not wait for `-30` to become `0`.
 3. Write `--frame-title` ≤ 12 characters; confirm product, video, and copy with the user.
 4. `goods attach` without `--execute` to preview; then `--execute`, including when `archive.state == -30`. Items already in the selection cart skip the add-to-cart step.

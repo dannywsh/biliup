@@ -59,6 +59,22 @@ pub struct GoodsAttachPlan {
     pub attach_payload: Value,
 }
 
+/// 会员购加入选品车的预览计划。
+#[derive(Debug, Clone)]
+pub struct GoodsCartPlan {
+    pub item: Value,
+    pub cart_payload: Value,
+}
+
+impl GoodsCartPlan {
+    /// 判断该商品是否尚未加入选品车。
+    ///
+    /// 输入：无。返回：`inSelectionCarState == 0` 时为 `true`。
+    pub fn needs_add_to_cart(&self) -> bool {
+        json_i64(self.item.get("inSelectionCarState")).is_some_and(|state| state == 0)
+    }
+}
+
 impl GoodsAttachPlan {
     /// 判断该商品是否尚未加入选品车。
     ///
@@ -1001,6 +1017,45 @@ impl BiliBili {
             ),
             item,
         })
+    }
+
+    /// 预览加入选品车：识别商品、校验商品 ID 并生成请求体，不发起写操作。
+    ///
+    /// 输入：商品链接或 `itemId`、候选下标。
+    /// 返回：含已识别商品与选品车请求体的计划；票务商品或参数无效时返回错误。
+    pub async fn plan_goods_cart(&self, query: &str, index: usize) -> Result<GoodsCartPlan> {
+        let candidates = self.search_goods(query).await?;
+        let item = candidates.get(index).cloned().ok_or_else(|| {
+            Kind::Custom(format!(
+                "候选下标 {index} 超出范围，共 {} 个候选。",
+                candidates.len()
+            ))
+        })?;
+        if item.get("sourceType").and_then(Value::as_str) == Some("ticket") {
+            return Err(Kind::Custom(
+                "选品车只支持会员购商品，票务商品不能加入。".to_string(),
+            ));
+        }
+        Ok(GoodsCartPlan {
+            cart_payload: build_cart_payload(&item, GOODS_SEARCH_PAGE, index)?,
+            item,
+        })
+    }
+
+    /// 执行加入选品车请求；商品已存在时跳过重复写入。
+    ///
+    /// 输入：`plan` 为预览阶段生成的加入选品车计划。返回：接口响应或已存在标记。
+    pub async fn execute_goods_cart(&self, plan: &GoodsCartPlan) -> Result<Value> {
+        if !plan.needs_add_to_cart() {
+            return Ok(json!("already_in_selection_cart"));
+        }
+        let result = self
+            .mall_json_post(ADD_TO_CART_URL, &plan.cart_payload)
+            .await?;
+        if json_i64(result.get("code")).is_some_and(|code| code != 0) {
+            return Err(Kind::Custom(format!("加入选品车接口返回失败：{result}")));
+        }
+        Ok(result)
     }
 
     /// 执行选品车写入和视频挂载。

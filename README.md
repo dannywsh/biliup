@@ -4,7 +4,7 @@
 
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
-- 会员购/票务商品链接精确识别与挂载（`goods search` / `goods attach`）
+- 会员购/票务商品链接精确识别、选品车管理与视频挂载（`goods search` / `goods cart` / `goods attach`）
 - 新版合集管理（`season list` / `season create` / `season episodes` / `season add` / `season edit` / `season remove` / `season sort`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
@@ -103,7 +103,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## 商品挂载
 
-`goods` 把商品挂到**已发布**视频，不是发评论。带货评论继续用 `reply` / `top-reply`。单商品挂载会同时提交两个展示位：
+`goods cart` 可独立将会员购商品加入选品车，不需要视频号；`goods attach` 会把商品挂到**已发布**视频，并在需要时先加入选品车。带货评论继续用 `reply` / `top-reply`。单商品挂载会同时提交两个展示位：
 
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
 - 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
@@ -112,7 +112,7 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 搜索结果除挂载所需的 `itemId`、`goodsName`、`sourceType`、价格和跳转链接外，还会返回 `detail` 及其摘要字段：会员购包含品牌、分类、属性、图片、摘要和 `promotions`；票务包含城市、场馆、地址、演出日期、票价、商家、图片、简介和摘要。会员购促销信息来自移动详情页同源的 `mall-search-items/items/merchant/info` 公开接口，包括直降价、欧气宝箱等活动、优惠券、新人券包及 SKU 级活动标签；接口失败时回退到原 `mall-c-search/items/info`。用户资格券和库存状态以实际详情页/结算页为准。票务详情用于检索展示，不能据此直接执行会员购挂载。
 
-`goods attach` 仍只适用于可挂载的会员购商品。取得 `itemId` 后必须传 `--expected-item-id`。必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 挂载流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
+`goods cart` 和 `goods attach` 仅适用于可挂载的会员购商品，不支持票务商品。两者均支持重复传入 `--query`、一次传入多个值或用英文逗号分隔多个商品；程序会先完成全部商品识别和 ID 校验。写操作默认 dry-run，传 `--execute` 才会提交。`--expected-item-id` 是 `goods attach` 的可选校验参数，`goods cart` 直接使用 `--query`，无需重复输入商品 ID。`goods attach` 必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 操作流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
 一次可以挂载多个商品：重复传入 `--query`、一次传入多个值，或用英文逗号分隔。程序会先完成所有商品识别和商品 ID 校验，再把全部商品放入一次 `createCmcTask` 请求的 `detailInfos`，每个商品都配置独立的视频框下展示位（`cmcPlaceType=1`、商品 ID、主图和标题），并生成一条评论蓝链；请求使用 `fromType=7`，单条评论最多 20 个商品。`--frame-title` 用作每个商品框下展示位的标题；多商品请求不添加 `cmcPlaceType=12` 带货编辑卡。`--expected-item-id` 可传一个值应用于全部商品，也可按商品顺序传多个值。
 
@@ -121,6 +121,8 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 ```bash
 biliup goods search 12345678
 biliup goods search 'https://show.bilibili.com/platform/detail.html?id=1004629'
+biliup goods cart --query 12345678
+biliup goods cart --query 12345678 --execute
 biliup goods attach BV1xxx --query 12345678 --expected-item-id 12345678
 biliup goods attach BV1xxx \
   --query 12345678 --query 23456789 \
@@ -180,7 +182,7 @@ show       打印稿件详情
 comments   查看评论
 reply      发表或回复评论（默认 dry-run）
 top-reply  置顶或取消置顶（默认 dry-run）
-goods      搜索商品，或挂载到已发布视频
+goods      搜索商品、加入选品车，或挂载到已发布视频
 season     管理新版合集（包含标题编辑）
 list       列出已投稿视频
 download   下载视频

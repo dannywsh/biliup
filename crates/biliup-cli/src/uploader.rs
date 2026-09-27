@@ -5,7 +5,9 @@ use biliup::client::StatelessClient;
 use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
-use biliup::uploader::goods::{GoodsAttachOptions, build_cmc_task_payload, summarize_goods_item};
+use biliup::uploader::goods::{
+    GoodsAttachOptions, build_cmc_task_payload, collect_failed_res_codes, summarize_goods_item,
+};
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, credential, line, load_config};
@@ -631,6 +633,68 @@ pub async fn goods_search(
         .map(|(index, item)| summarize_goods_item(item, index))
         .collect();
     print_json(&Value::Array(summarized))
+}
+
+/// 预览或执行商品加入选品车。
+///
+/// 输入：登录文件、商品链接或 itemId、候选下标和执行标志。
+/// 返回：未加 `--execute` 时打印识别商品与请求预览；执行后打印每个商品的接口结果。
+pub async fn goods_cart(
+    user_cookie: PathBuf,
+    queries: Vec<String>,
+    index: usize,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    let queries = expand_goods_queries(queries)?;
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let mut plans = Vec::with_capacity(queries.len());
+    for query in &queries {
+        plans.push(
+            bilibili
+                .plan_goods_cart(query, index)
+                .await
+                .change_context_lazy(|| AppError::Unknown)?,
+        );
+    }
+    print_json(&json!({
+        "selectedItems": plans
+            .iter()
+            .map(|plan| summarize_goods_item(&plan.item, index))
+            .collect::<Vec<_>>(),
+        "addToCart": plans.iter().map(|plan| &plan.cart_payload).collect::<Vec<_>>(),
+    }))?;
+    if !execute {
+        println!("dry-run: goods cart，共 {} 个商品", plans.len());
+        println!("use --execute to send");
+        return Ok(());
+    }
+    let mut results = Vec::with_capacity(plans.len());
+    let mut success_count = 0;
+    for plan in &plans {
+        let result = bilibili
+            .execute_goods_cart(plan)
+            .await
+            .change_context_lazy(|| AppError::Unknown)?;
+        let failed_res_codes = collect_failed_res_codes(&result);
+        let code = result.get("code").and_then(Value::as_i64);
+        let succeeded =
+            !plan.needs_add_to_cart() || (code == Some(0) && failed_res_codes.is_empty());
+        if succeeded {
+            success_count += 1;
+        }
+        results.push(json!({
+            "item": summarize_goods_item(&plan.item, index),
+            "success": succeeded,
+            "failedResCodes": failed_res_codes,
+            "result": result,
+        }));
+    }
+    print_json(&json!({
+        "successCount": success_count,
+        "failureCount": plans.len() - success_count,
+        "cartResults": results,
+    }))
 }
 
 /// 预览或执行商品挂载。
