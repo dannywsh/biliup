@@ -34,6 +34,11 @@ If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `b
 
 ## Upload with post-upload goods
 
+### Fixed category IDs
+
+- Model figures/手办: use `--tid 210` (「动画 → 模玩·周边」).
+- Exhibition videos: use `--tid 21` (「生活 → 日常」).
+
 For the creator-center option 商业推广 → 视频带货 → 投稿后再添加商品, use `--submit web --post-upload-goods`. The flag generates a random `adorder_id` in the same range as the web page and sets `adorder_type: 2`. Use it only with `--submit web`; APP and Bcut reject it. Pass `--cover` (16:9) and `--cover43` (4:3 homepage cover) together when both images exist.
 
 ```bash
