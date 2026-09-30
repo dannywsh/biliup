@@ -1,13 +1,13 @@
 ---
 name: biliup
-description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), inspect Membership Shop promotions by itemId, add Membership Shop goods to the selection cart, and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods cart, goods attach). Use for B站会员购促销查询、商品挂载、票务挂载、选品车、视频框下或带货编辑; not for posting ordinary comments or title-based product search.
+description: Use the biliup CLI to log in, upload and download Bilibili videos, run the WebUI/recorder, list archives, manage comments (comments, reply, top-reply), manage新版合集 (season list, create, episodes, add, edit, remove, sort), inspect Membership Shop promotions by itemId, add Membership Shop goods to the selection cart, and attach Membership Shop or ticketing goods by mall URL, ticketing-page id, or itemId (goods search, goods cart, goods attach), and apply for Membership Shop review teams (goods apply-review). Use for B站会员购促销查询、商品挂载、票务挂载、选品车、视频框下、带货编辑或申请测评团; not for posting ordinary comments or title-based product search.
 ---
 
 # biliup
 
 Use this skill to install and operate `biliup`. Inspect `biliup <command> --help` (or `-h`) before generating a command. Include concrete paths for cookies, configs, covers, and videos.
 
-This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection creation and collection-entry title editing), and `goods` (`search`, `cart`, and `attach`). Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
+This repository adds `--post-upload-goods`, `--cover43`, `top-reply`, `season` (including collection creation and collection-entry title editing), and `goods` (`search`, `cart`, `attach`, and `apply-review`). Use the binary from this repo's GitHub Releases. Do not use PyPI `biliup`, `uv tool install biliup`, or upstream `biliup/biliup` releases.
 
 ## Install
 
@@ -30,7 +30,7 @@ unzip biliup-*-aarch64-macos.zip
 install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply`, `season`, and `goods`, `biliup upload --help` lists `--post-upload-goods`, `--cover43`, and `--tid-v2`, and `biliup goods attach --help` lists `--frame-title`.
+If `$HOME/.local/bin` is not on `PATH`, call the binary by full path. Confirm `biliup --help` lists `top-reply`, `season`, and `goods`, `biliup upload --help` lists `--post-upload-goods`, `--cover43`, and `--tid-v2`, and `biliup goods attach --help` lists `--frame-title`. Confirm `biliup goods apply-review --help` lists `--execute`.
 
 ## Upload with post-upload goods
 
@@ -188,6 +188,17 @@ biliup goods attach BV1xxx \
   --postfix-text '示例后缀' \
   --execute
 ```
+
+### 申请测评团（goods apply-review）
+
+使用会员购商品 `itemId` 和视频 BV 号申请测评团。默认仅预览，加 `--execute` 提交；Cookie 默认读取 `cookies.json`，可用 `-u` 指定。
+
+```bash
+biliup goods apply-review <itemId> <bvId>
+biliup -u /absolute/path/cookies.json goods apply-review <itemId> <bvId> --execute
+```
+
+按接口结果报告申请状态。若返回 `81104119`，说明已投稿且正在审核，不重复提交。
 
 ## Seasons / collections
 

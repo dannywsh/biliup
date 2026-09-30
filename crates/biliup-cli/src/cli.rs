@@ -341,6 +341,16 @@ pub enum SeasonCommands {
 
 #[derive(Subcommand)]
 pub enum GoodsCommands {
+    /// 申请会员购测评团，默认预览请求
+    ApplyReview {
+        /// 正整数会员购商品 itemId
+        item_id: String,
+        /// 以 BV1 开头的 12 位视频号
+        bv_id: String,
+        /// 实际提交申请
+        #[arg(long)]
+        execute: bool,
+    },
     /// 按商品链接或 itemId 精确查询商品；会员购结果包含活动、优惠券和 SKU 促销信息
     Search {
         /// 商品链接或纯数字 itemId；会员购商品可直接输入 itemId 查询促销
@@ -688,5 +698,32 @@ mod tests {
                 && postfix_text == "示例后缀"
                 && frame_title == "示例框下标题"
         ));
+    }
+}
+
+#[cfg(test)]
+mod review_command_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn review_application_requires_explicit_execute() {
+        for execute in [false, true] {
+            let mut args = vec![
+                "biliup",
+                "goods",
+                "apply-review",
+                "1",
+                "BV1TEST00000",
+            ];
+            if execute {
+                args.push("--execute");
+            }
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(matches!(cli.command, Commands::Goods {
+                command: GoodsCommands::ApplyReview { execute: actual, .. }
+            } if actual == execute));
+        }
+        assert!(Cli::try_parse_from(["biliup", "goods", "apply-review", "1"]).is_err());
     }
 }

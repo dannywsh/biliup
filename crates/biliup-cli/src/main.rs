@@ -4,9 +4,9 @@ use biliup::uploader::util::SubmitOption;
 use biliup_cli::cli::{Cli, Commands, GoodsCommands, SeasonCommands, expand_path};
 use biliup_cli::downloader::{download, generate_json};
 use biliup_cli::uploader::{
-    append, comments, goods_attach, goods_cart, goods_search, list, login, renew, reply,
-    season_add, season_create, season_edit, season_episodes, season_list, season_remove,
-    season_sort, show, top_reply, upload_by_command, upload_by_config,
+    append, comments, goods_apply_review, goods_attach, goods_cart, goods_search, list, login,
+    renew, reply, season_add, season_create, season_edit, season_episodes, season_list,
+    season_remove, season_sort, show, top_reply, upload_by_command, upload_by_config,
 };
 
 use clap::Parser;
@@ -230,6 +230,14 @@ async fn main() -> AppResult<()> {
             )
             .await?
         }
+        Commands::Goods {
+            command:
+                GoodsCommands::ApplyReview {
+                    item_id,
+                    bv_id,
+                    execute,
+                },
+        } => goods_apply_review(user_cookie, item_id, bv_id, execute, cli.proxy.as_deref()).await?,
         Commands::Goods {
             command: GoodsCommands::Search { query },
         } => goods_search(user_cookie, query, cli.proxy.as_deref()).await?,

@@ -789,7 +789,60 @@ pub fn distinguish_goods_items(response: &Value) -> Result<Vec<Value>> {
     Ok(result)
 }
 
+/// 校验测评团申请参数。输入：商品 ID 和 BV 号。返回：请求体或参数错误。
+pub fn build_review_application_payload(item_id: &str, bv_id: &str) -> Result<Value> {
+    if item_id.is_empty()
+        || !item_id.bytes().all(|c| c.is_ascii_digit())
+        || !item_id.bytes().any(|c| c != b'0')
+    {
+        return Err(Kind::Custom("itemId 必须是正整数".to_string()));
+    }
+    if bv_id.len() != 12
+        || !bv_id.starts_with("BV1")
+        || !bv_id.bytes().all(|c| c.is_ascii_alphanumeric())
+    {
+        return Err(Kind::Custom(
+            "bvId 必须是以 BV1 开头的 12 位视频号".to_string(),
+        ));
+    }
+    Ok(json!({"itemId": item_id, "bvId": bv_id}))
+}
+
+/// 校验申请业务结果。输入：接口响应。返回：成功或含业务码、提示的错误。
+pub fn validate_review_application_response(response: &Value) -> Result<()> {
+    if response.get("success").and_then(Value::as_bool) == Some(true)
+        && json_i64(response.get("code")) == Some(0)
+    {
+        return Ok(());
+    }
+    Err(Kind::Custom(format!(
+        "测评团申请失败：code={} message={}",
+        response.get("code").unwrap_or(&Value::Null),
+        response
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("响应缺少成功标志或业务码")
+    )))
+}
+
 impl BiliBili {
+    /// 使用当前登录 Cookie 提交申请。输入：商品 ID、BV 号。返回：完整接口响应。
+    pub async fn apply_goods_review(&self, item_id: &str, bv_id: &str) -> Result<Value> {
+        let body = build_review_application_payload(item_id, bv_id)?;
+        let referer = format!(
+            "https://mall.bilibili.com/neul-next/index.html?page=upmeasure_contribute&noTitleBar=1&itemsId={item_id}"
+        );
+        let response = self
+            .client
+            .post("https://mall.bilibili.com/aethas/items/content/addContent")
+            .header("Origin", "https://mall.bilibili.com")
+            .header("Referer", referer)
+            .header("Accept", "application/json, text/plain, */*")
+            .json(&body)
+            .send()
+            .await?;
+        Self::json_from_response(response).await
+    }
     /// 为会员购带货请求补齐创作中心同源头。
     ///
     /// 输入：`request` 为待发送请求。返回：带 Origin、Referer 和 csrf 头的请求。
@@ -1425,5 +1478,42 @@ mod tests {
                 .unwrap()
                 .contains("mall.bilibili.com")
         );
+    }
+}
+
+#[cfg(test)]
+mod review_application_tests {
+    use super::*;
+
+    #[test]
+    fn validates_review_parameters_and_string_payload() {
+        assert_eq!(
+            build_review_application_payload("1", "BV1TEST00000").unwrap(),
+            json!({"itemId": "1", "bvId": "BV1TEST00000"})
+        );
+        for item in ["", "0", "000", "-1", "1.5", "商品", " 123"] {
+            assert!(build_review_application_payload(item, "BV1TEST00000").is_err());
+        }
+        for bv in ["", "av123", "BV1", "BV1TEST0000!", "BV2TEST00000"] {
+            assert!(build_review_application_payload("1", bv).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_and_inconsistent_responses() {
+        let duplicate = json!({"success":false,"code":81104119,"message":"已为该商品投稿，正在审核中，请勿重复提交~"});
+        let error = validate_review_application_response(&duplicate)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("81104119"));
+        assert!(error.contains("正在审核中"));
+        assert!(validate_review_application_response(&json!({"success":true,"code":0})).is_ok());
+        for response in [
+            json!({"success":false,"code":0}),
+            json!({"success":true,"code":1}),
+            json!({}),
+        ] {
+            assert!(validate_review_application_response(&response).is_err());
+        }
     }
 }

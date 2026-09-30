@@ -1410,3 +1410,30 @@ mod season_tests {
         assert!(error.to_string().contains("标题不能为空"));
     }
 }
+
+/// 预览或提交测评团申请。输入：Cookie 文件、商品 ID、BV 号、执行标志、代理。
+/// 返回：打印请求或完整响应；参数或业务失败时返回错误。
+pub async fn goods_apply_review(
+    user_cookie: PathBuf,
+    item_id: String,
+    bv_id: String,
+    execute: bool,
+    proxy: Option<&str>,
+) -> AppResult<()> {
+    use biliup::uploader::goods::{
+        build_review_application_payload, validate_review_application_response,
+    };
+    let payload = build_review_application_payload(&item_id, &bv_id)
+        .change_context_lazy(|| AppError::Unknown)?;
+    if !execute {
+        println!("dry-run: goods apply-review，使用 --execute 提交申请");
+        return print_json(&payload);
+    }
+    let bilibili = login_by_cookies(user_cookie, proxy).await?;
+    let response = bilibili
+        .apply_goods_review(&item_id, &bv_id)
+        .await
+        .change_context_lazy(|| AppError::Unknown)?;
+    print_json(&response)?;
+    validate_review_application_response(&response).change_context_lazy(|| AppError::Unknown)
+}

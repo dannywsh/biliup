@@ -5,12 +5,13 @@
 - 创作中心 Web v3「视频带货 · 投稿后再添加商品」（`--post-upload-goods`）
 - 评论置顶（`top-reply`）
 - 会员购/票务商品链接精确识别、选品车管理与视频挂载（`goods search` / `goods cart` / `goods attach`）
+- 会员购测评团申请（`goods apply-review`）
 - 新版合集管理（`season list` / `season create` / `season episodes` / `season add` / `season edit` / `season remove` / `season sort`）
 - 给 Agent 用的 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)
 
 请使用本仓库 [Releases](https://github.com/dannywsh/biliup/releases/latest) 里的 `biliup`。PyPI 的 `biliup`、`uv tool install biliup`、以及上游 [biliup/biliup](https://github.com/biliup/biliup) 的 Release 都没有上述能力。
 
-Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods attach` 以及合集的 `add`、`edit`、`remove`、`sort` 默认只预览，必须加 `--execute` 才会真正提交。
+Cookie 默认读取当前目录的 `cookies.json`，可用 `-u/--user-cookie` 覆盖。`reply`、`top-reply`、`goods cart`、`goods attach`、`goods apply-review` 以及合集的 `add`、`edit`、`remove`、`sort` 默认只预览，必须加 `--execute` 才会真正提交。
 
 ## 安装
 
@@ -33,7 +34,7 @@ unzip biliup-*-aarch64-macos.zip
 install -m 755 biliup-*-aarch64-macos/biliup "$HOME/.local/bin/biliup"
 ```
 
-若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。装好后确认 `biliup --help` 有 `top-reply`、`goods`、`season`，`biliup upload --help` 有 `--post-upload-goods`、`--cover43`。
+若 `$HOME/.local/bin` 不在 `PATH` 里，用二进制的完整路径调用。装好后确认 `biliup --help` 有 `top-reply`、`goods`、`season`，`biliup goods apply-review --help` 有 `--execute`，`biliup upload --help` 有 `--post-upload-goods`、`--cover43`。
 
 需要改代码时再从源码构建，见下方「开发」。
 
@@ -138,6 +139,17 @@ biliup goods attach BV1xxx \
 
 执行成功后看 `finalResult.jumpUrl`，这是后续填表用的商品链接。`--index` 选择搜索结果下标（默认 `0`）。
 
+### 申请测评团
+
+使用现有 Cookie 文件申请会员购测评团。商品 ID 必须是正整数，视频号必须是以 `BV1` 开头的 12 位字母数字串；CLI 预览和底层提交使用同一校验规则。
+
+```bash
+biliup goods apply-review <itemId> <bvId>
+biliup -u /absolute/path/cookies.json goods apply-review <itemId> <bvId> --execute
+```
+
+默认只打印请求体，不登录、不提交。`--execute` 调用 `https://mall.bilibili.com/aethas/items/content/addContent`，JSON 字段为字符串 `itemId`、`bvId`，Origin 和 Referer 使用会员购测评投稿页。接口响应会完整打印，只有 `success=true` 且 `code=0` 才视为成功；例如 `81104119` 表示已投稿且正在审核，命令返回失败并保留原提示，不自动重试。Cookie 不写入代码。
+
 ## 合集管理
 
 `season` 管理 B 站新版合集（SEASON）。`list` 和 `episodes` 只读；`create`、`add`、`edit`、`remove`、`sort` 默认 dry-run，确认请求内容后再加 `--execute`。创建合集调用 B 站创作中心的 `season/add` 接口，需要提供已上传的封面 URL；成功后可用 `season list` 找到新合集及其分区。排序时必须传入目标分区中的全部视频，并按目标顺序重复传入 `--episode-id`。`edit` 会先读取目标分区的完整条目，只替换合集内标题并保留 `aid`、`cid`、排序等字段。
@@ -182,7 +194,7 @@ show       打印稿件详情
 comments   查看评论
 reply      发表或回复评论（默认 dry-run）
 top-reply  置顶或取消置顶（默认 dry-run）
-goods      搜索商品、加入选品车，或挂载到已发布视频
+goods      搜索商品、加入选品车、挂载视频或申请测评团
 season     管理新版合集（包含标题编辑）
 list       列出已投稿视频
 download   下载视频
