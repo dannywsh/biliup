@@ -383,15 +383,15 @@ pub enum GoodsCommands {
         #[arg(long, default_value = "0")]
         index: usize,
 
-        /// 单商品带货编辑展示位，默认 12；多商品 createCmcTask 使用视频框下展示位
+        /// 单商品评论展示位，默认 12；多商品评论蓝链必须使用默认值 12
         #[arg(long, default_value = "12")]
         place_type: u32,
 
-        /// 商品卡片前文案
+        /// 商品前文案；多商品时仅放在第一项前
         #[arg(long, default_value = "")]
         prefix_text: String,
 
-        /// 商品卡片后文案
+        /// 商品后文案；多商品时仅放在最后一项后
         #[arg(long, default_value = "")]
         postfix_text: String,
 
@@ -399,7 +399,7 @@ pub enum GoodsCommands {
         #[arg(long, default_value = "")]
         another_name: String,
 
-        /// 视频框下标题，最多 12 个字符；默认从展示名截取
+        /// 单商品视频框下标题，最多 12 个字符；默认从展示名截取，多商品不使用
         #[arg(long, default_value = "")]
         frame_title: String,
 
@@ -709,13 +709,7 @@ mod review_command_tests {
     #[test]
     fn review_application_requires_explicit_execute() {
         for execute in [false, true] {
-            let mut args = vec![
-                "biliup",
-                "goods",
-                "apply-review",
-                "1",
-                "BV1TEST00000",
-            ];
+            let mut args = vec!["biliup", "goods", "apply-review", "1", "BV1TEST00000"];
             if execute {
                 args.push("--execute");
             }

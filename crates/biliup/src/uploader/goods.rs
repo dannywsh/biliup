@@ -18,8 +18,14 @@ const GOODS_SEARCH_PAGE: u32 = 1;
 const ITEM_URL_TEMPLATE: &str = "https://mall.bilibili.com/detail.html?from=card_item&jumpLinkType=0&loadingShow=1&noTitleBar=1#goFrom=na&itemsId={item_id}&noReffer=true";
 /// 视频框下商品卡展示位。
 pub const UNDER_VIDEO_PLACE_TYPE: u32 = 1;
-/// 带货编辑默认展示位。
+/// 评论蓝链展示位；由官方内容管理前端的 COMMENT 常量定义。
 pub const DEFAULT_CARD_PLACE_TYPE: u32 = 12;
+/// 评论蓝链任务来源，与评论展示位 12 配对，不能按商品切换。
+const COMMENT_FROM_TYPE: u8 = 3;
+/// 官方前端默认评论商品文本的 UTF-16 长度上限。
+const COMMENT_TITLE_MAX_UNITS: usize = 32;
+/// 官方前端仅为一条评论的前九个商品设置图片。
+const MAX_COMMENT_IMAGE_GOODS: usize = 9;
 /// 视频框下标题最大字符数。
 pub const UNDER_VIDEO_TITLE_MAX_CHARS: usize = 12;
 /// 单条评论蓝链允许挂载的最大商品数量。
@@ -35,7 +41,7 @@ pub struct GoodsAttachOptions<'a> {
     pub vid: &'a Vid,
     /// 搜索结果下标。
     pub index: usize,
-    /// 带货编辑展示位，默认 12；会与视频框下（1）一并提交。
+    /// 评论展示位，默认 12；单商品时与视频框下（1）一并提交。
     pub place_type: u32,
     /// 带货卡片前文案。
     pub prefix_text: &'a str,
@@ -207,8 +213,8 @@ pub fn parse_main_image_url(response: &Value) -> Result<String> {
 
 /// 构造会员购商品挂载请求体。
 ///
-/// 输入：商品 ID、视频 AID、带货编辑展示位、卡片文案、视频框下标题和主图。
-/// 返回：同时包含视频框下（`cmcPlaceType=1`）和带货编辑卡的 JSON body；带货展示位为 1 时不重复提交。
+/// 输入：商品 ID、视频 AID、评论展示位、评论文案、视频框下标题和主图。
+/// 返回：同时包含视频框下（`cmcPlaceType=1`）和评论展示位的 JSON body；指定展示位为 1 时不重复提交。
 pub fn build_attach_payload(
     item_id: &str,
     aid: u64,
@@ -241,44 +247,66 @@ pub fn build_attach_payload(
     })
 }
 
-/// 从单商品挂载计划中提取视频框下展示位。
+/// 构造一个商品的评论蓝链详情。
 ///
-/// 输入：已完成商品识别的挂载计划和商品 ID。返回：可放入 `createCmcTask` 的视频框下详情；
-/// 若计划缺少视频框下标题或主图则返回错误。
-fn under_video_detail_info(plan: &GoodsAttachPlan, item_id: &str) -> Result<Value> {
-    let under_video_info = plan
+/// 输入：商品计划、评论内下标和总商品数。返回：展示位 12 的详情；
+/// 首项放前文案，末项放后文案，商品之间换行，前九项附主图。
+fn comment_detail_info(plan: &GoodsAttachPlan, index: usize, count: usize) -> Result<Value> {
+    let infos = plan
         .attach_payload
         .get("cmcInfos")
         .and_then(Value::as_array)
-        .and_then(|infos| {
-            infos.iter().find(|info| {
-                info.get("cmcPlaceType").and_then(Value::as_u64)
-                    == Some(UNDER_VIDEO_PLACE_TYPE as u64)
-            })
-        })
-        .ok_or_else(|| Kind::Custom("商品挂载计划缺少视频框下展示位".to_string()))?;
-    let title = under_video_info
-        .get("title")
+        .ok_or_else(|| Kind::Custom("商品挂载计划缺少展示位".to_string()))?;
+    let comment = infos
+        .iter()
+        .find(|info| info["cmcPlaceType"] == DEFAULT_CARD_PLACE_TYPE)
+        .ok_or_else(|| Kind::Custom("多商品评论蓝链需要展示位 12".to_string()))?;
+    let name = comment
+        .get("anotherName")
         .and_then(Value::as_str)
-        .filter(|title| !title.is_empty())
-        .ok_or_else(|| Kind::Custom("视频框下展示位缺少标题".to_string()))?;
-    let image_url = under_video_info
-        .get("imageUrl")
-        .and_then(Value::as_str)
-        .filter(|url| !url.is_empty())
-        .ok_or_else(|| Kind::Custom("视频框下展示位缺少主图".to_string()))?;
-    Ok(json!({
-        "cmcPlaceType": UNDER_VIDEO_PLACE_TYPE,
-        "itemId": item_id,
-        "imageUrl": image_url,
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| Kind::Custom("评论蓝链商品缺少展示名称".to_string()))?;
+    let title = truncate_utf16(name, COMMENT_TITLE_MAX_UNITS);
+    let prefix = comment["prefixText"].as_str().unwrap_or("");
+    let postfix = comment["postfixText"].as_str().unwrap_or("");
+    let mut detail = json!({
+        "cmcPlaceType": DEFAULT_CARD_PLACE_TYPE,
+        "itemId": required_item_id(&plan.item)?,
         "title": title,
-    }))
+        "anotherName": title,
+        "prefixText": if index == 0 && !prefix.is_empty() { format!("{prefix}\n") } else { String::new() },
+        "postfixText": if index + 1 < count { "\n" } else { postfix },
+    });
+    if index < MAX_COMMENT_IMAGE_GOODS {
+        let image_url = infos
+            .iter()
+            .find(|info| info["cmcPlaceType"] == UNDER_VIDEO_PLACE_TYPE)
+            .and_then(|info| info["imageUrl"].as_str())
+            .filter(|url| !url.trim().is_empty())
+            .ok_or_else(|| Kind::Custom("评论蓝链商品缺少主图".to_string()))?;
+        detail["imageUrl"] = json!(image_url);
+    }
+    Ok(detail)
+}
+
+/// 按官方前端文本规则截取 UTF-16 长度，保留完整 Unicode 字符。
+///
+/// 输入：原文和最大 UTF-16 单元数。返回：不超过上限且不拆分字符的文本。
+fn truncate_utf16(text: &str, max_units: usize) -> String {
+    let mut units = 0;
+    text.chars()
+        .take_while(|character| {
+            units += character.len_utf16();
+            units <= max_units
+        })
+        .collect()
 }
 
 /// 构造一条评论蓝链的多商品挂载请求体。
 ///
 /// 输入：已完成商品识别的挂载计划、视频 AID。返回：`createCmcTask` 请求体；
-/// 多个商品共用一个 `detailInfos`，且每个商品都配置视频框下展示位。
+/// 多个商品共用一个 `detailInfos`，使用评论来源 3 和评论展示位 12。
 pub fn build_cmc_task_payload(plans: &[GoodsAttachPlan], aid: u64) -> Result<Value> {
     if plans.is_empty() {
         return Err(Kind::Custom("评论蓝链至少需要一个商品".to_string()));
@@ -291,20 +319,33 @@ pub fn build_cmc_task_payload(plans: &[GoodsAttachPlan], aid: u64) -> Result<Val
     }
     let detail_infos = plans
         .iter()
-        .map(|plan| {
-            let item_id = required_item_id(&plan.item)?;
-            under_video_detail_info(plan, &item_id)
-        })
+        .enumerate()
+        .map(|(index, plan)| comment_detail_info(plan, index, plans.len()))
         .collect::<Result<Vec<_>>>()?;
     Ok(json!({
         "cmcInfos": [{
             "avId": aid.to_string(),
-            "fromType": 7,
+            "fromType": COMMENT_FROM_TYPE,
             "masTaskId": 0,
             "detailInfos": detail_infos,
         }],
         "requestFrom": 109,
     }))
+}
+
+/// 检查创建评论任务的接口响应和逐项业务结果。
+///
+/// 输入：`createCmcTask` 响应。返回：成功时 `Ok(())`；外层错误、
+/// `data.failCnt` 非零或逐项 `resCode` 失败时返回含原始响应的错误。
+fn validate_cmc_task_result(result: &Value) -> Result<()> {
+    let fail_count = result.pointer("/data/failCnt");
+    if json_i64(result.get("code")) != Some(0)
+        || fail_count.is_some_and(|count| json_i64(Some(count)) != Some(0))
+        || !collect_failed_res_codes(result).is_empty()
+    {
+        return Err(Kind::Custom(format!("评论蓝链挂载接口返回失败：{result}")));
+    }
+    Ok(())
 }
 
 /// 校验选中商品 ID 是否等于用户指定值。
@@ -1028,7 +1069,7 @@ impl BiliBili {
     /// 预览商品挂载：搜索、校验商品、拉取主图并构造请求体，不发起写操作。
     ///
     /// 输入：`options` 含检索词、稿件、展示位、卡片文案、可选视频框下标题和商品 ID 白名单。
-    /// 返回：可供确认或随后执行的挂载计划，请求体同时包含视频框下和带货编辑卡。
+    /// 返回：可供确认或随后执行的挂载计划；单商品体包含视频框下和评论展示位，多商品体由评论构造函数生成。
     pub async fn plan_goods_attach(
         &self,
         options: GoodsAttachOptions<'_>,
@@ -1139,12 +1180,13 @@ impl BiliBili {
     ///
     /// 输入：已完成预检的商品计划。返回：选品车响应数组与单条评论挂载响应。
     pub async fn execute_cmc_task(&self, plans: &[GoodsAttachPlan]) -> Result<(Value, Value)> {
-        if plans.len() > MAX_COMMENT_GOODS {
-            return Err(Kind::Custom(format!(
-                "一条评论蓝链最多挂载 {MAX_COMMENT_GOODS} 个商品，当前为 {} 个",
-                plans.len()
-            )));
-        }
+        let aid = plans
+            .first()
+            .and_then(|plan| plan.attach_payload.pointer("/videoInfos/0/avId"))
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| Kind::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
+        let payload = build_cmc_task_payload(plans, aid)?;
         let mut cart_results = Vec::with_capacity(plans.len());
         for plan in plans {
             let cart_result = if plan.needs_add_to_cart() {
@@ -1153,19 +1195,18 @@ impl BiliBili {
             } else {
                 json!("already_in_selection_cart")
             };
+            if plan.needs_add_to_cart()
+                && (json_i64(cart_result.get("code")) != Some(0)
+                    || !collect_failed_res_codes(&cart_result).is_empty())
+            {
+                return Err(Kind::Custom(format!(
+                    "加入选品车接口返回失败：{cart_result}"
+                )));
+            }
             cart_results.push(cart_result);
         }
-        let aid = plans
-            .first()
-            .and_then(|plan| plan.attach_payload.pointer("/videoInfos/0/avId"))
-            .and_then(Value::as_str)
-            .and_then(|value| value.parse::<u64>().ok())
-            .ok_or_else(|| Kind::Custom("商品挂载计划缺少有效视频 AID".to_string()))?;
-        let payload = build_cmc_task_payload(plans, aid)?;
         let result = self.mall_json_post(CREATE_CMC_TASK_URL, &payload).await?;
-        if result.get("code").and_then(Value::as_i64) != Some(0) {
-            return Err(Kind::Custom(format!("评论蓝链挂载接口返回失败：{result}")));
-        }
+        validate_cmc_task_result(&result)?;
         Ok((Value::Array(cart_results), result))
     }
 }
@@ -1178,7 +1219,7 @@ mod tests {
         build_cmc_task_payload, collect_failed_res_codes, distinguish_goods_items,
         normalize_goods_url, parse_main_image_url, parse_mall_public_detail,
         parse_ticket_public_detail, summarize_goods_item, truncate_chars, under_video_title,
-        validate_expected_item_id,
+        validate_cmc_task_result, validate_expected_item_id,
     };
     use serde_json::json;
 
@@ -1355,29 +1396,35 @@ mod tests {
             cart_payload: json!({}),
             attach_payload: json!({"cmcInfos": [
                 {"cmcPlaceType": 1, "title": "示例三款周边", "imageUrl": "https://example.com/second.png", "style": 1, "masTaskId": ""},
-                {"cmcPlaceType": 12, "anotherName": "示例商品 B", "prefixText": "", "postfixText": ""}
+                {"cmcPlaceType": 12, "anotherName": "示例商品 B", "prefixText": "示例前缀", "postfixText": "示例后缀"}
             ]}),
         };
         let payload = build_cmc_task_payload(&[first, second], 123456789).unwrap();
         assert_eq!(payload["requestFrom"], json!(109));
-        assert_eq!(payload["cmcInfos"][0]["fromType"], json!(7));
+        assert_eq!(payload["cmcInfos"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["cmcInfos"][0]["fromType"], json!(3));
         let detail_infos = payload["cmcInfos"][0]["detailInfos"].as_array().unwrap();
         assert_eq!(detail_infos.len(), 2);
         assert!(detail_infos.iter().all(|info| {
-            info["cmcPlaceType"] == json!(UNDER_VIDEO_PLACE_TYPE)
+            info["cmcPlaceType"] == json!(DEFAULT_CARD_PLACE_TYPE)
                 && info.get("itemId").is_some()
                 && info.get("imageUrl").is_some()
                 && info.get("title").is_some()
-                && info.as_object().is_some_and(|fields| fields.len() == 4)
+                && info.as_object().is_some_and(|fields| fields.len() == 7)
         }));
         assert_eq!(detail_infos[0]["itemId"], json!("10000001"));
-        assert_eq!(detail_infos[0]["title"], json!("示例三款周边"));
+        assert_eq!(detail_infos[0]["title"], json!("示例商品 A"));
+        assert_eq!(detail_infos[0]["anotherName"], json!("示例商品 A"));
+        assert_eq!(detail_infos[0]["prefixText"], json!("示例前缀\n"));
+        assert_eq!(detail_infos[0]["postfixText"], json!("\n"));
         assert_eq!(
             detail_infos[0]["imageUrl"],
             json!("https://example.com/first.png")
         );
         assert_eq!(detail_infos[1]["itemId"], json!("10000002"));
-        assert_eq!(detail_infos[1]["title"], json!("示例三款周边"));
+        assert_eq!(detail_infos[1]["title"], json!("示例商品 B"));
+        assert_eq!(detail_infos[1]["prefixText"], json!(""));
+        assert_eq!(detail_infos[1]["postfixText"], json!("示例后缀"));
         assert_eq!(
             detail_infos[1]["imageUrl"],
             json!("https://example.com/second.png")
@@ -1385,14 +1432,92 @@ mod tests {
     }
 
     #[test]
-    fn cmc_task_payload_rejects_plan_without_under_video_placement() {
+    fn cmc_task_payload_rejects_plan_without_comment_placement() {
         let plan = GoodsAttachPlan {
             item: json!({"itemId": "12345678", "goodsName": "示例商品"}),
             cart_payload: json!({}),
-            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 12}]}),
+            attach_payload: json!({"cmcInfos": [{"cmcPlaceType": 1}]}),
         };
         let error = build_cmc_task_payload(&[plan], 1).unwrap_err().to_string();
-        assert!(error.contains("缺少视频框下展示位"));
+        assert!(error.contains("需要展示位 12"));
+    }
+
+    /// 构造与真实计划同结构的合成商品数据。
+    ///
+    /// 输入：合成展示名。返回：仅含虚构商品、视频和图片的挂载计划。
+    fn synthetic_comment_plan(name: &str) -> GoodsAttachPlan {
+        GoodsAttachPlan {
+            item: json!({"itemId": "10000001", "goodsName": name}),
+            cart_payload: json!({}),
+            attach_payload: build_attach_payload(
+                "10000001",
+                123456789,
+                DEFAULT_CARD_PLACE_TYPE,
+                "",
+                "",
+                name,
+                "示例框下标题",
+                "https://example.com/synthetic.png",
+            ),
+        }
+    }
+
+    #[test]
+    fn cmc_task_payload_enforces_comment_limits_and_image_slots() {
+        let plan = synthetic_comment_plan("示例商品");
+        let plans = vec![plan; 20];
+        let payload = build_cmc_task_payload(&plans, 123456789).unwrap();
+        let details = payload["cmcInfos"][0]["detailInfos"].as_array().unwrap();
+        assert_eq!(details.len(), 20);
+        assert!(
+            details[..9]
+                .iter()
+                .all(|detail| detail.get("imageUrl").is_some())
+        );
+        assert!(
+            details[9..]
+                .iter()
+                .all(|detail| detail.get("imageUrl").is_none())
+        );
+        assert!(build_cmc_task_payload(&[], 123456789).is_err());
+        assert!(build_cmc_task_payload(&vec![plans[0].clone(); 21], 123456789).is_err());
+    }
+
+    #[test]
+    fn cmc_task_payload_uses_comment_name_instead_of_frame_title() {
+        let name = format!("{}🧸尾", "商".repeat(30));
+        let payload = build_cmc_task_payload(&[synthetic_comment_plan(&name)], 123456789).unwrap();
+        let title = payload["cmcInfos"][0]["detailInfos"][0]["title"]
+            .as_str()
+            .unwrap();
+        assert_eq!(title, format!("{}🧸", "商".repeat(30)));
+        assert_eq!(title.encode_utf16().count(), 32);
+        assert_eq!(
+            payload["cmcInfos"][0]["detailInfos"][0]["anotherName"],
+            title
+        );
+    }
+
+    #[test]
+    fn cmc_task_result_rejects_business_failure_even_when_code_is_zero() {
+        let result = json!({"code": 0, "data": {
+            "failCnt": 1, "failTips": [{"option": "模拟挂载业务失败"}]
+        }});
+        let error = validate_cmc_task_result(&result).unwrap_err().to_string();
+        assert!(error.contains("模拟挂载业务失败"));
+        assert!(error.contains("failCnt"));
+        assert!(validate_cmc_task_result(&json!({"code": -400})).is_err());
+        assert!(
+            validate_cmc_task_result(&json!({"code": 0, "data": {
+                "failCnt": 0, "infos": [{"resCode": 1}]
+            }}))
+            .is_err()
+        );
+        assert!(validate_cmc_task_result(&json!({"data": {"failCnt": 0}})).is_err());
+        assert!(
+            validate_cmc_task_result(&json!({"code": 0, "data": {"failCnt": "invalid"}})).is_err()
+        );
+        assert!(validate_cmc_task_result(&json!({"code": 0, "data": {"failCnt": 0}})).is_ok());
     }
 
     #[test]

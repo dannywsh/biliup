@@ -74,9 +74,9 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 `goods cart` adds Membership Shop items to the selection cart without requiring a video. It is dry-run unless `--execute` is passed. `goods attach` also adds an item to the selection cart when needed, then attaches it to a published video; it is dry-run unless `--execute` is passed. A single-product attach writes two placements at once:
 
 - under the player (`cmcPlaceType=1`): `--frame-title` + product `main_image_url`
-- 带货编辑 card (default `cmcPlaceType=12`): `--prefix-text` / `--postfix-text` / `--another-name`
+- comment blue-link (default `cmcPlaceType=12`): `--prefix-text` / `--postfix-text` / `--another-name`
 
-This is not a comment; use `reply` / `top-reply` for 带货评论. If the video was just uploaded and goods will be attached after review, the upload must use `--submit web --post-upload-goods`.
+Use `reply` / `top-reply` for ordinary text comments. If the video was just uploaded and goods will be attached after review, the upload must use `--submit web --post-upload-goods`.
 
 ### Audience-facing goods copy
 
@@ -94,7 +94,7 @@ Examples (include only benefits actually returned for the attached item):
 欧气宝箱出没中，去商品链接碰碰运气～
 ```
 
-For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array and `fromType=7`; maximum 20 products. Every product detail must use `cmcPlaceType=1` with that product's own `itemId` and `main_image_url`, plus the shared `--frame-title`. Do not add `cmcPlaceType=12` details to this multi-product request and do not attach each product separately, or multiple comments may be created. The single-product `batch/commit` flow still uses both under-player and card placements.
+For multiple products, use one comment blue-link via `createCmcTask`, with all products in the same `detailInfos` array: `fromType=3` and every `cmcPlaceType=12`; maximum 20 products. These values select the comment resource placement and never depend on the product. Each detail includes its own `itemId`, `title`, `anotherName`, `prefixText`, and `postfixText`; the first 9 products also include their own `main_image_url` as `imageUrl`, matching the official frontend. Display names are truncated to 32 UTF-16 units without splitting a Unicode character. The shared prefix appears once before the first link and the postfix once after the last link; products are separated by newlines. Keep `--place-type=12`; `--frame-title` is ignored for multiple products. Do not attach each product separately, or multiple comments may be created. `fromType=7` with `cmcPlaceType=1` means under-player placement (frontend maximum 5 products), not a comment. The single-product `batch/commit` flow still uses both under-player and comment placements.
 
 ```bash
 biliup goods attach BVxxxx \
@@ -145,7 +145,7 @@ biliup show BV1xxx
 
 ### `--frame-title` (under-player title)
 
-Always pass `--frame-title`. If omitted, the CLI hard-truncates the display name to 12 characters, which is not a usable 带货 title.
+For single-product attach, always pass `--frame-title`. If omitted, the CLI hard-truncates the display name to 12 characters. Multiple-product comments use each product display name and do not use this option.
 
 - Count Unicode characters. Max **12**. Chinese, English, digits, spaces, and punctuation each count as 1.
 - The CLI rejects more than 12 characters. Count before sending.
@@ -158,7 +158,7 @@ Content must identify the attached SKU:
 - Accessory SKU → accessory wording; main SKU → not accessory wording.
 - Do not invent selling points absent from the product name or the user's notes.
 
-On dry-run, check `attach.cmcInfos`: for one product, confirm the `batch/commit` array has under-player and card placements; for multiple products, confirm `fromType=7` and every `detailInfos` item has `cmcPlaceType=1`, its own `itemId`, `title` ≤ 12, and non-empty `imageUrl`.
+On dry-run, check `attach.cmcInfos`: for one product, confirm the `batch/commit` array has under-player and comment placements; for multiple products, confirm exactly one task with `fromType=3`, all `detailInfos` entries using `cmcPlaceType=12`, distinct product IDs and names, prefix/postfix text, and non-empty images on the first 9 products.
 
 ### Attach workflow
 
@@ -166,7 +166,7 @@ On dry-run, check `attach.cmcInfos`: for one product, confirm the `batch/commit`
 2. `biliup show <vid>` for review state; both passed (`0`) and verified in-review (`-30`) states may proceed to attach. Do not wait for `-30` to become `0`.
 3. Write `--frame-title` ≤ 12 characters; confirm product, video, and copy with the user.
 4. `goods attach` without `--execute` to preview; then `--execute`, including when `archive.state == -30`. Items already in the selection cart skip the add-to-cart step.
-5. Require `code=0` and each `resCode=0`. `finalResult.jumpUrl` is the product URL for later forms. On failure, report the API output and re-read product/archive state; do not guess-retry.
+5. Require `code=0`, no nonzero `data.failCnt`, and each returned `resCode=0`; `code=0` alone does not mean goods mounting succeeded. `finalResult.jumpUrl` is the product URL for later forms. On failure, report the API output and re-read product/archive state; do not guess-retry.
 
 ```bash
 biliup goods search 12345678

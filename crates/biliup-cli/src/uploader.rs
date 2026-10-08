@@ -6,7 +6,8 @@ use biliup::error::Kind;
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
 use biliup::uploader::goods::{
-    GoodsAttachOptions, build_cmc_task_payload, collect_failed_res_codes, summarize_goods_item,
+    DEFAULT_CARD_PLACE_TYPE, GoodsAttachOptions, MAX_COMMENT_GOODS, build_cmc_task_payload,
+    collect_failed_res_codes, summarize_goods_item,
 };
 use biliup::uploader::line::Probe;
 use biliup::uploader::util::SubmitOption;
@@ -733,6 +734,19 @@ pub async fn goods_attach(
             .into());
         }
     };
+    if queries.len() > MAX_COMMENT_GOODS {
+        return Err(AppError::Custom(format!(
+            "一条评论蓝链最多挂载 {MAX_COMMENT_GOODS} 个商品，当前为 {} 个",
+            queries.len()
+        ))
+        .into());
+    }
+    if queries.len() > 1 && place_type != DEFAULT_CARD_PLACE_TYPE {
+        return Err(AppError::Custom(
+            "多商品挂载生成一条评论蓝链，--place-type 必须为 12".to_string(),
+        )
+        .into());
+    }
     let bilibili = login_by_cookies(user_cookie, proxy).await?;
     let mut plans = Vec::with_capacity(queries.len());
     for (query, expected_item_id) in queries.iter().zip(expected_item_ids) {
@@ -745,7 +759,8 @@ pub async fn goods_attach(
                 prefix_text: &prefix_text,
                 postfix_text: &postfix_text,
                 another_name: &another_name,
-                frame_title: Some(frame_title.as_str()).filter(|title| !title.trim().is_empty()),
+                frame_title: Some(frame_title.as_str())
+                    .filter(|title| queries.len() == 1 && !title.trim().is_empty()),
                 expected_item_id,
             })
             .await

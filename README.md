@@ -104,18 +104,20 @@ biliup top-reply BV1xxx <rpid> --unpin --execute
 
 ## 商品挂载
 
-`goods cart` 可独立将会员购商品加入选品车，不需要视频号；`goods attach` 会把商品挂到**已发布**视频，并在需要时先加入选品车。带货评论继续用 `reply` / `top-reply`。单商品挂载会同时提交两个展示位：
+`goods cart` 可独立将会员购商品加入选品车，不需要视频号；`goods attach` 会把商品挂到**已发布**视频，并在需要时先加入选品车。普通文本评论使用 `reply` / `top-reply`。单商品挂载会同时提交两个展示位：
 
 - 视频框下（`cmcPlaceType=1`）：标题最多 12 个字符，主图取商品详情 `main_image_url`
-- 带货编辑卡（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
+- 评论蓝链（默认 `cmcPlaceType=12`）：`prefixText` / `postfixText` / `anotherName`
 
 `goods search` 接受会员购链接、票务页 `https://show.bilibili.com/platform/detail.html?id=<数字>` 或纯数字 `itemId`。纯数字会先按会员购商品识别；会员购识别失败时会读取公开详情接口，票务页则直接读取票务详情。命令不按商品标题做模糊匹配，也不会回退到 UP 主小店搜索。
 
 搜索结果除挂载所需的 `itemId`、`goodsName`、`sourceType`、价格和跳转链接外，还会返回 `detail` 及其摘要字段：会员购包含品牌、分类、属性、图片、摘要和 `promotions`；票务包含城市、场馆、地址、演出日期、票价、商家、图片、简介和摘要。会员购促销信息来自移动详情页同源的 `mall-search-items/items/merchant/info` 公开接口，包括直降价、欧气宝箱等活动、优惠券、新人券包及 SKU 级活动标签；接口失败时回退到原 `mall-c-search/items/info`。用户资格券和库存状态以实际详情页/结算页为准。票务详情用于检索展示，不能据此直接执行会员购挂载。
 
-`goods cart` 和 `goods attach` 仅适用于可挂载的会员购商品，不支持票务商品。两者均支持重复传入 `--query`、一次传入多个值或用英文逗号分隔多个商品；程序会先完成全部商品识别和 ID 校验。写操作默认 dry-run，传 `--execute` 才会提交。`--expected-item-id` 是 `goods attach` 的可选校验参数，`goods cart` 直接使用 `--query`，无需重复输入商品 ID。`goods attach` 必须显式传 `--frame-title`（最多 12 个 Unicode 字符）。Agent 操作流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
+`goods cart` 和 `goods attach` 仅适用于可挂载的会员购商品，不支持票务商品。两者均支持重复传入 `--query`、一次传入多个值或用英文逗号分隔多个商品；程序会先完成全部商品识别和 ID 校验。写操作默认 dry-run，传 `--execute` 才会提交。`--expected-item-id` 是 `goods attach` 的可选校验参数，`goods cart` 直接使用 `--query`，无需重复输入商品 ID。单商品挂载可传 `--frame-title`（最多 12 个 Unicode 字符）；多商品评论蓝链使用各商品展示名，不使用框下标题。Agent 操作流程见 [`skills/biliup/SKILL.md`](skills/biliup/SKILL.md)。
 
-一次可以挂载多个商品：重复传入 `--query`、一次传入多个值，或用英文逗号分隔。程序会先完成所有商品识别和商品 ID 校验，再把全部商品放入一次 `createCmcTask` 请求的 `detailInfos`，每个商品都配置独立的视频框下展示位（`cmcPlaceType=1`、商品 ID、主图和标题），并生成一条评论蓝链；请求使用 `fromType=7`，单条评论最多 20 个商品。`--frame-title` 用作每个商品框下展示位的标题；多商品请求不添加 `cmcPlaceType=12` 带货编辑卡。`--expected-item-id` 可传一个值应用于全部商品，也可按商品顺序传多个值。
+一次可以挂载多个商品：重复传入 `--query`、一次传入多个值，或用英文逗号分隔。程序先完成全部识别和校验，再通过一次 `createCmcTask` 请求生成一条评论蓝链；请求固定使用评论来源 `fromType=3` 和评论展示位 `cmcPlaceType=12`，每条评论最多 20 个商品。各商品使用自己的 ID、展示名和主图；展示名按官方前端默认规则截取为最多 32 个 UTF-16 单元，前 9 个商品附图。`--prefix-text` 只放在第一项之前，`--postfix-text` 只放在最后一项之后，商品之间换行。多商品时 `--place-type` 必须为默认值 12，`--frame-title` 不参与评论请求。`--expected-item-id` 可传一个值应用于全部商品，也可按商品顺序传多个值。
+
+`fromType` 和 `cmcPlaceType` 根据挂载资源位配对，不由商品决定：官方前端的评论蓝链使用 `3+12`，视频框下使用 `7+1`，框下最多 5 个商品。biliup 多商品模式生成评论蓝链。执行时检查外层 `code`、`data.failCnt` 和逐项 `resCode`，业务失败保留接口提示并停止，不自动重试。协议依据见 [挂载资源位说明](docs/goods-cmc-protocol.md)。
 
 稿件审核中（`archive.state=-30`）已验证可以直接挂载商品，不需要等待审核通过；先 dry-run 核对商品和展示位，再加 `--execute` 提交。只有挂载接口明确因审核状态拒绝时，才每 3 分钟重新检查一次。审核拒绝（`archive.state=-2`）则停止挂载并处理 `reject_reason`。
 
