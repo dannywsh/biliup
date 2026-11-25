@@ -4,11 +4,12 @@ members = [
     "crates/biliup-cli",
     "crates/stream-gears",
     "crates/danmaku",
+    "crates/danmaku-factory",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.0.19"
+version = "0.0.20"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -40,12 +41,20 @@ rustls-native-certs = "0.8"
 webpki-root-certs = "1"
 webpki-roots = "1"
 url = "2.5"
+quick-xml = "0.37"
 
+
+[profile.dev]
+# Keep business code easy to step through, and reuse unaffected code after edits.
+opt-level = 0
+debug = 2
+incremental = true
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+incremental = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [profile.minimal]

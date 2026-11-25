@@ -112,13 +112,9 @@ impl<'a> DouyinLive<'a> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let cover = room_info
-            .pointer("/cover/url_list")
-            .and_then(Value::as_array)
-            .and_then(|url_list| url_list.first())
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let cover = first_url(room_info.pointer("/cover/url_list")).unwrap_or_default();
+        // web 与 H5 两个接口的房间对象里都带 owner.avatar_thumb
+        let avatar_url = first_url(room_info.pointer("/owner/avatar_thumb/url_list"));
 
         Ok(LiveStatus::Live {
             stream: Box::new(LiveStream {
@@ -127,6 +123,7 @@ impl<'a> DouyinLive<'a> {
                 title,
                 date: Utc::now(),
                 live_cover_url: cover,
+                avatar_url,
                 suffix: media_ext_from_url(&raw_stream_url).unwrap_or_else(|| "flv".to_string()),
                 raw_stream_url,
                 platform: "douyin".to_string(),
@@ -478,6 +475,16 @@ impl<'a> DouyinLive<'a> {
             password: None,
         })
     }
+}
+
+/// 抖音图片字段形如 `{"url_list": ["https://...", ...]}`，取第一个非空地址
+fn first_url(url_list: Option<&Value>) -> Option<String> {
+    url_list?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .find(|url| !url.is_empty())
+        .map(ToString::to_string)
 }
 
 fn common_params() -> Vec<(String, String)> {
@@ -980,6 +987,64 @@ mod tests {
     use super::*;
     use crate::downloader::live::{LiveCredentials, LiveOptions, LiveRequest, LiveStatus};
 
+    fn live<'a>(quality: &str, protocol: &str, cache: &'a Mutex<Option<String>>) -> DouyinLive<'a> {
+        DouyinLive {
+            client: Client::new(),
+            url: format!("{DOUYIN_LIVE_URL}123"),
+            name: "fixture".into(),
+            douyin_quality: quality.into(),
+            douyin_protocol: protocol.into(),
+            douyin_double_screen: false,
+            douyin_true_origin: false,
+            cookie: String::new(),
+            douyin_danmaku: false,
+            web_rid: None,
+            room_id: None,
+            sec_uid: None,
+            ttwid_cache: cache,
+        }
+    }
+
+    fn room(stream_data: &str) -> serde_json::Value {
+        serde_json::json!({
+            "stream_url": {
+                "live_core_sdk_data": {
+                    "pull_data": {"stream_data": stream_data}
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn stream_selection_falls_back_to_an_available_quality() {
+        let cache = Mutex::new(None);
+        let live = live("origin", "flv", &cache);
+        let room = room(r#"{"data":{"uhd":{"main":{"flv":"http://cdn.example/uhd.flv"}}}}"#);
+        assert_eq!(
+            live.select_stream_url(&room).unwrap(),
+            "https://cdn.example/uhd.flv"
+        );
+    }
+
+    #[test]
+    fn replay_streams_are_rejected_instead_of_recorded() {
+        let cache = Mutex::new(None);
+        let live = live("origin", "flv", &cache);
+        let room = room(
+            r#"{"data":{"origin":{"main":{"flv":"https://cdn.example/live.flv?rtm_expr_tag=reflow_room_info"}}}}"#,
+        );
+        assert!(live.select_stream_url(&room).is_err());
+    }
+
+    #[test]
+    fn stream_headers_always_include_required_referer() {
+        let cache = Mutex::new(None);
+        let live = live("origin", "flv", &cache);
+        let headers = live.stream_headers();
+        assert_eq!(headers.get("referer"), Some(&DOUYIN_LIVE_URL.to_string()));
+        assert!(headers.contains_key("user-agent"));
+    }
+
     #[test]
     fn web_rid_from_www_live_path_skips_live_prefix() {
         assert_eq!(
@@ -994,6 +1059,27 @@ mod tests {
             web_rid_from_live_url("https://www.douyin.com/+68621666216"),
             Some("68621666216".into())
         );
+    }
+
+    #[test]
+    fn first_url_picks_the_first_non_empty_entry_and_tolerates_missing_fields() {
+        let room = serde_json::json!({
+            "cover": { "url_list": ["", "https://p3.douyinpic.com/cover.jpg"] },
+            "owner": { "avatar_thumb": { "url_list": ["https://p3.douyinpic.com/face.jpeg"] } }
+        });
+        assert_eq!(
+            first_url(room.pointer("/cover/url_list")).as_deref(),
+            Some("https://p3.douyinpic.com/cover.jpg")
+        );
+        assert_eq!(
+            first_url(room.pointer("/owner/avatar_thumb/url_list")).as_deref(),
+            Some("https://p3.douyinpic.com/face.jpeg")
+        );
+        assert_eq!(
+            first_url(room.pointer("/owner/avatar_large/url_list")),
+            None
+        );
+        assert_eq!(first_url(Some(&serde_json::json!([]))), None);
     }
 
     #[tokio::test]

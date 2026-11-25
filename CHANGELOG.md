@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.0.20
+- 更新时间：2026.11.25
+- 同步上游 `master`（至 `v1.3.5` / `8204f53`）：整合 `mesio` 默认下载引擎、纯 Rust `danmaku-factory` 弹幕转换与浏览器预览、切片工作台与剪辑台（`/workbench`）、自动切片（`auto_clip`）、多机 Fleet 控制面与节点高可用（`node` 子命令）、Web 多用户分级权限（`user` 子命令）、上传断点续传与网络故障重试、斗鱼 Cookie 自动续期及 YouTube RSS 订阅支持。
+- 保留本分支全部扩展能力：跨平台混合 TLS 根证书校验（`webpki-root-certs` + `rustls-native-certs`）、双封面（`--cover43`）、投稿后带货声明（`--post-upload-goods`）、会员购/票务商品检索与选品车/蓝链挂载（`goods search` / `goods cart` / `goods attach`）、测评团申请（`goods apply-review`）、新版合集全功能管理（`season list/create/episodes/add/edit/remove/sort`）与评论置顶（`top-reply`）。
+
 ## 0.0.19
 - 更新时间：2026.11.25
 - 跨平台 TLS 根证书加载与沙箱兼容：将 `biliup`、`biliup-cli` 与 `danmaku` 的 HTTP/WebSocket TLS 客户端统一收敛至 `rustls-webpki` 纯内存证书校验，合并内置 Mozilla 根证书（`webpki-root-certs` / `webpki-roots`）与系统/环境变量原生根证书（`rustls-native-certs`，含 DER 去重及 macOS 沙箱 `/etc/ssl/cert.pem` 回退），解决 macOS 沙箱环境下无法访问 `com.apple.trustd.agent` 报 `OSStatus -26276` 及精简 Linux 容器缺少系统证书目录的问题。

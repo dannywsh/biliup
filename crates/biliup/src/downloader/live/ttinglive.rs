@@ -80,6 +80,7 @@ impl TTingLiveLive {
                 title: info.title.unwrap_or(room_id),
                 date: Utc::now(),
                 live_cover_url: info.thumb_url.unwrap_or_default(),
+                avatar_url: None,
                 suffix: media_ext_from_url(&raw_stream_url).unwrap_or_else(|| "m3u8".to_string()),
                 raw_stream_url,
                 platform: "ttinglive".to_string(),
@@ -142,11 +143,12 @@ impl TTingLiveLive {
         let mut best_bandwidth = 0_u64;
         let mut best_url = None;
         let mut last_bandwidth = None;
+        let bandwidth_pattern = Regex::new(r"BANDWIDTH=(\d+)")
+            .map_err(|err| LiveError::custom(format!("编译 TTingLive 码率匹配规则失败: {err}")))?;
 
         for line in text.lines().map(str::trim) {
             if let Some(attributes) = line.strip_prefix("#EXT-X-STREAM-INF:") {
-                last_bandwidth = Regex::new(r"BANDWIDTH=(\d+)")
-                    .unwrap()
+                last_bandwidth = bandwidth_pattern
                     .captures(attributes)
                     .and_then(|captures| captures[1].parse::<u64>().ok());
                 continue;

@@ -142,6 +142,7 @@ impl BilibiliLive {
                 title: profile.title,
                 date: Utc::now(),
                 live_cover_url: profile.cover,
+                avatar_url: (!profile.avatar.is_empty()).then_some(profile.avatar),
                 suffix: media_ext_from_url(&raw_stream_url).unwrap_or_else(|| {
                     if raw_stream_url.contains(".m3u8") {
                         "m3u8".to_string()
@@ -252,53 +253,7 @@ impl BilibiliLive {
             .await
             .map_err(|err| LiveError::custom(format!("解析 B 站直播间信息失败: {err}")))?;
 
-        if room_info.get("code").and_then(|code| code.as_i64()) != Some(0) {
-            return Err(LiveError::custom(format!(
-                "获取 B 站直播间信息错误: {}",
-                room_info
-                    .get("message")
-                    .or_else(|| room_info.get("msg"))
-                    .and_then(|msg| msg.as_str())
-                    .unwrap_or_default()
-            )));
-        }
-
-        let room = room_info
-            .get("data")
-            .and_then(|data| data.get("room_info"))
-            .ok_or_else(|| LiveError::custom("B 站直播间信息为空"))?;
-        if room.get("live_status").and_then(|status| status.as_i64()) != Some(1) {
-            return Ok(None);
-        }
-
-        Ok(Some(BiliRoomProfile {
-            room_id: room
-                .get("room_id")
-                .and_then(|room_id| room_id.as_u64())
-                .ok_or_else(|| LiveError::custom("B 站真实房间号为空"))?,
-            uid: room
-                .get("uid")
-                .and_then(|uid| uid.as_u64())
-                .unwrap_or_default(),
-            live_start_time: room
-                .get("live_start_time")
-                .and_then(|time| time.as_u64())
-                .unwrap_or_default(),
-            special_type: room
-                .get("special_type")
-                .and_then(|special_type| special_type.as_u64())
-                .unwrap_or_default(),
-            title: room
-                .get("title")
-                .and_then(|title| title.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            cover: room
-                .get("cover")
-                .and_then(|cover| cover.as_str())
-                .unwrap_or_default()
-                .to_string(),
-        }))
+        parse_room_profile(&room_info)
     }
 
     async fn get_stream_candidates(
@@ -400,15 +355,17 @@ impl BilibiliLive {
 
             let candidates = streams
                 .iter()
-                .flat_map(|stream| stream.get("format").and_then(|formats| formats.as_array()))
+                .flat_map(|stream| stream.get("format").and_then(Value::as_array))
                 .flatten()
-                .find(|format| {
-                    format.get("format_name").and_then(|name| name.as_str()) == Some("fmp4")
-                })
-                .and_then(|format| format.get("codec"))
-                .and_then(Value::as_array)
-                .and_then(|codecs| codecs.first())
-                .and_then(parse_codec_urls)?;
+                .filter(|format| format.get("format_name").and_then(Value::as_str) == Some("fmp4"))
+                .flat_map(|format| format.get("codec").and_then(Value::as_array))
+                .flatten()
+                .filter_map(parse_codec_urls)
+                .flatten()
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                return None;
+            }
             // fmp4 可能没有原画
             if matches!(self.qn, 10000 | 25000)
                 && !candidates.iter().any(|candidate| candidate.qn == self.qn)
@@ -418,15 +375,18 @@ impl BilibiliLive {
             return Some(candidates);
         }
 
+        // The API occasionally puts an empty/unsupported format first (some
+        // rooms expose this while a game-specific encoder is starting).  Walk
+        // every stream/format/codec and keep the first valid candidate set
+        // instead of treating the first entry as authoritative.
         streams
-            .first()
-            .and_then(|stream| stream.get("format"))
-            .and_then(Value::as_array)
-            .and_then(|formats| formats.first())
-            .and_then(|format| format.get("codec"))
-            .and_then(Value::as_array)
-            .and_then(|codecs| codecs.first())
-            .and_then(parse_codec_urls)
+            .iter()
+            .flat_map(|stream| stream.get("format").and_then(Value::as_array))
+            .flatten()
+            .filter(|format| format.get("format_name").and_then(Value::as_str) != Some("fmp4"))
+            .filter_map(|format| format.get("codec").and_then(Value::as_array))
+            .flatten()
+            .find_map(parse_codec_urls)
     }
 
     async fn master_m3u8_candidates(
@@ -654,6 +614,64 @@ struct BiliRoomProfile {
     special_type: u64,
     title: String,
     cover: String,
+    /// 主播头像（`anchor_info.base_info.face`），与房间信息来自同一次响应
+    avatar: String,
+}
+
+/// 解析 `getInfoByRoom` 的响应；未开播返回 `Ok(None)`。
+fn parse_room_profile(room_info: &Value) -> LiveResult<Option<BiliRoomProfile>> {
+    if room_info.get("code").and_then(|code| code.as_i64()) != Some(0) {
+        return Err(LiveError::custom(format!(
+            "获取 B 站直播间信息错误: {}",
+            room_info
+                .get("message")
+                .or_else(|| room_info.get("msg"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or_default()
+        )));
+    }
+
+    let room = room_info
+        .get("data")
+        .and_then(|data| data.get("room_info"))
+        .ok_or_else(|| LiveError::custom("B 站直播间信息为空"))?;
+    if room.get("live_status").and_then(|status| status.as_i64()) != Some(1) {
+        return Ok(None);
+    }
+
+    Ok(Some(BiliRoomProfile {
+        room_id: room
+            .get("room_id")
+            .and_then(|room_id| room_id.as_u64())
+            .ok_or_else(|| LiveError::custom("B 站真实房间号为空"))?,
+        uid: room
+            .get("uid")
+            .and_then(|uid| uid.as_u64())
+            .unwrap_or_default(),
+        live_start_time: room
+            .get("live_start_time")
+            .and_then(|time| time.as_u64())
+            .unwrap_or_default(),
+        special_type: room
+            .get("special_type")
+            .and_then(|special_type| special_type.as_u64())
+            .unwrap_or_default(),
+        title: room
+            .get("title")
+            .and_then(|title| title.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        cover: room
+            .get("cover")
+            .and_then(|cover| cover.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        avatar: room_info
+            .pointer("/data/anchor_info/base_info/face")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    }))
 }
 
 struct BiliStreamCandidate {
@@ -852,5 +870,96 @@ mod tests {
         let candidates = parse_master_m3u8(text).unwrap();
         assert_eq!(candidates.len(), 1);
         assert!(candidates[0].url.starts_with("https://a.example.com/"));
+    }
+
+    #[tokio::test]
+    async fn parse_play_info_skips_empty_first_format() {
+        let live = BilibiliLive {
+            client: Client::new(),
+            url: "https://live.bilibili.com/1".to_string(),
+            name: "fixture".to_string(),
+            qn: 400,
+            protocol: "stream".to_string(),
+            cdn: Vec::new(),
+            cdn_fallback: false,
+            hls_transcode_timeout: 60,
+            anonymous_origin: false,
+            api_list: Vec::new(),
+            cookie: None,
+            cookie_file: None,
+            danmaku: false,
+            danmaku_raw: false,
+            danmaku_detail: false,
+            room_id: None,
+            wbi_signer: WbiSigner::new(),
+        };
+        let play_info = serde_json::json!({
+            "data": {"playurl_info": {"playurl": {"stream": [{
+                "format": [
+                    {"format_name": "flv", "codec": []},
+                    {"format_name": "flv", "codec": [{
+                        "current_qn": 400,
+                        "base_url": "/live.flv",
+                        "url_info": [{"host": "https://cdn.example", "extra": "?cdn=test"}]
+                    }]}
+                ]
+            }]}}}
+        });
+
+        let profile = BiliRoomProfile {
+            room_id: 1,
+            uid: 2,
+            live_start_time: 0,
+            special_type: 0,
+            title: "fixture".to_string(),
+            cover: String::new(),
+            avatar: String::new(),
+        };
+        let candidates = live
+            .parse_play_info(
+                "https://api.example",
+                &profile,
+                &play_info,
+                &HeaderMap::new(),
+                "stream",
+            )
+            .await
+            .unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].url, "https://cdn.example/live.flv?cdn=test");
+    }
+
+    /// 头像与房间信息来自同一次 getInfoByRoom 响应，字段缺失时留空而不是报错
+    #[test]
+    fn room_profile_takes_cover_and_anchor_face_from_one_response() {
+        let response = serde_json::json!({
+            "code": 0,
+            "data": {
+                "room_info": {
+                    "room_id": 1, "uid": 2, "live_status": 1, "live_start_time": 3,
+                    "special_type": 0, "title": "t",
+                    "cover": "https://i0.hdslb.com/bfs/live/cover.jpg"
+                },
+                "anchor_info": {
+                    "base_info": { "face": "https://i1.hdslb.com/bfs/face/face.jpg" }
+                }
+            }
+        });
+        let profile = parse_room_profile(&response).unwrap().unwrap();
+        assert_eq!(profile.cover, "https://i0.hdslb.com/bfs/live/cover.jpg");
+        assert_eq!(profile.avatar, "https://i1.hdslb.com/bfs/face/face.jpg");
+
+        let without_anchor = serde_json::json!({
+            "code": 0,
+            "data": { "room_info": { "room_id": 1, "live_status": 1, "title": "t" } }
+        });
+        let profile = parse_room_profile(&without_anchor).unwrap().unwrap();
+        assert_eq!(profile.avatar, "");
+
+        let offline = serde_json::json!({
+            "code": 0,
+            "data": { "room_info": { "room_id": 1, "live_status": 0 } }
+        });
+        assert!(parse_room_profile(&offline).unwrap().is_none());
     }
 }

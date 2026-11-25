@@ -1,15 +1,19 @@
-use crate::server::core::downloader::{DownloadConfig, DownloadStatus, SegmentEvent, SegmentInfo};
+use crate::server::common::throughput::SubprocessProgress;
 use crate::server::common::util::redact_process_debug;
+use crate::server::core::downloader::{DownloadConfig, DownloadStatus, SegmentEvent, SegmentInfo};
 use crate::server::errors::{AppError, AppResult};
+use crate::tools;
+use biliup::downloader::util::ByteCounter;
 use error_stack::ResultExt;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::process::{Child, ChildStdout};
 use tokio::sync::RwLock;
 use tokio::time::Duration;
-use tracing::info;
+use tracing::{debug, info};
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -55,13 +59,21 @@ impl Streamlink {
         mut callback: Box<dyn FnMut(SegmentEvent) + Send + Sync + 'a>,
         download_config: DownloadConfig,
     ) -> AppResult<DownloadStatus> {
-        let output_file = download_config.generate_output_filename(&download_config.suffix);
+        // Streamlink writes the selected stream verbatim. A requested suffix
+        // cannot remux it; name the completed file from its actual header.
+        let name = download_config.recorder.generate_filename_in(
+            &download_config.output_dir,
+            &["streamlink", "flv", "ts", "mp4", "mkv", "webm"],
+        );
+        let output_file = download_config
+            .output_dir
+            .join(format!("{name}.streamlink"));
         let part_file = format!("{}.part", output_file.display());
         let args = self
             .streamlink_downloader
             .build_file_args(&download_config, &part_file)?;
 
-        let mut cmd = Command::new("streamlink");
+        let mut cmd = tools::command("streamlink");
         cmd.args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -70,12 +82,27 @@ impl Streamlink {
 
         info!(cmd = %redact_process_debug(&cmd), "Starting streamlink download");
         let child = cmd.spawn().change_context(AppError::Unknown)?;
-        let status = spawn_log(child, &self.process_handle).await?;
+        callback(SegmentEvent::Start {
+            next_file_path: PathBuf::from(&part_file),
+        });
+        let status = spawn_log(
+            child,
+            &self.process_handle,
+            download_config.bytes_written.clone(),
+        )
+        .await?;
 
         if tokio::fs::try_exists(&part_file)
             .await
             .change_context(AppError::Unknown)?
         {
+            let actual = recorded_container(std::path::Path::new(&part_file)).await?;
+            let output_file = output_file.with_extension(actual);
+            if output_file.exists() {
+                return Err(
+                    AppError::Custom(format!("输出文件已存在，保留临时录像: {part_file}")).into(),
+                );
+            }
             tokio::fs::rename(&part_file, &output_file)
                 .await
                 .change_context(AppError::Custom(String::from("退出时，重命名文件")))?;
@@ -104,11 +131,53 @@ impl Streamlink {
     }
 }
 
+async fn recorded_container(path: &std::path::Path) -> AppResult<&'static str> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .change_context(AppError::Unknown)?;
+    let mut header = Vec::new();
+    file.take(4096)
+        .read_to_end(&mut header)
+        .await
+        .change_context(AppError::Unknown)?;
+    container_from_header(&header).ok_or_else(|| {
+        AppError::Custom(format!(
+            "无法识别 streamlink 实际容器，已保留录像，不按配置后缀伪装格式: {}",
+            path.display()
+        ))
+        .into()
+    })
+}
+
+fn container_from_header(header: &[u8]) -> Option<&'static str> {
+    if header.starts_with(b"FLV") {
+        Some("flv")
+    } else if header.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        Some(if header.windows(4).any(|w| w == b"webm") {
+            "webm"
+        } else {
+            "mkv"
+        })
+    } else if header
+        .get(4..8)
+        .is_some_and(|kind| matches!(kind, b"ftyp" | b"styp"))
+    {
+        Some("mp4")
+    } else if [0, 188, 376].iter().all(|&i| header.get(i) == Some(&0x47)) {
+        Some("ts")
+    } else {
+        None
+    }
+}
+
 pub struct StreamlinkDownloader {
     platform: Platform,
     url: String,
     headers: HashMap<String, String>,
     output_mode: OutputMode,
+    /// `url` 就是插件解析出的流直链时，每次拉流改用 `DownloadConfig::url`：
+    /// 重试会重新解析出新直链（斗鱼网宿的 token 连过一次就作废），且经过了 expire=0 探测
+    follow_stream_url: bool,
 }
 
 impl StreamlinkDownloader {
@@ -118,7 +187,13 @@ impl StreamlinkDownloader {
             url,
             headers: HashMap::new(),
             output_mode: OutputMode::Pipe, // 默认管道模式
+            follow_stream_url: false,
         }
+    }
+
+    pub fn following_stream_url(mut self) -> Self {
+        self.follow_stream_url = true;
+        self
     }
 
     pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
@@ -164,16 +239,24 @@ impl StreamlinkDownloader {
             args.push(segment_time);
         }
         args.push("--force".to_string());
+        // stderr 不是终端时也按周期打「[download] Written …」进度行，spawn_log 据此算写盘速率
+        args.push("--progress".to_string());
+        args.push("force".to_string());
         args.push("--output".to_string());
         args.push(output_file.to_string());
-        args.push(streamlink_cli_url(&self.url));
+        let url = if self.follow_stream_url {
+            &download_config.url
+        } else {
+            &self.url
+        };
+        args.push(streamlink_cli_url(url));
         args.push("best".to_string());
         Ok(args)
     }
 
     /// 启动streamlink进程
     pub fn start(&mut self) -> AppResult<StreamOutput> {
-        let mut cmd = Command::new("streamlink");
+        let mut cmd = tools::command("streamlink");
 
         cmd.args(self.build_base_args()?);
 
@@ -349,7 +432,6 @@ impl StreamOutput {
     }
 }
 
-
 /// Rewrite already-resolved progressive HTTP(S) media URLs so Streamlink's
 /// built-in `http` plugin matches them.
 ///
@@ -438,15 +520,36 @@ fn is_progressive_http_ext(ext: &str) -> bool {
     )
 }
 
+/// 等待 streamlink 结束，期间把 stdout / stderr 转成日志；`--progress=force` 的进度行
+/// 只解析不打印，把累计写出字节的增量累加到 `bytes_written`（写盘速率的来源）。
+/// `--output` 到文件时 streamlink 把控制台输出（含进度）打在 stdout，两条流都解析。
 async fn spawn_log(
     mut child: Child,
     process_handle: &RwLock<Option<Child>>,
+    bytes_written: ByteCounter,
 ) -> AppResult<ExitStatus> {
+    let progress = Arc::new(std::sync::Mutex::new(SubprocessProgress::default()));
+    let log_or_track = {
+        let progress = progress.clone();
+        move |line: String| {
+            if progress
+                .lock()
+                .unwrap()
+                .observe_streamlink(&line, &bytes_written)
+            {
+                debug!("[streamlink] {line}");
+            } else {
+                info!("[streamlink] {line}");
+            }
+        }
+    };
+
     let mut stderr_task = child.stderr.take().map(|stderr| {
         let mut stderr_lines = BufReader::new(stderr).lines();
+        let log_or_track = log_or_track.clone();
         tokio::spawn(async move {
             while let Ok(Some(line)) = stderr_lines.next_line().await {
-                info!("[streamlink] {line}");
+                log_or_track(line);
             }
         })
     });
@@ -455,7 +558,7 @@ async fn spawn_log(
         let mut stdout_lines = BufReader::new(stdout).lines();
         tokio::spawn(async move {
             while let Ok(Some(line)) = stdout_lines.next_line().await {
-                info!("[streamlink] {line}");
+                log_or_track(line);
             }
         })
     });
@@ -492,15 +595,75 @@ async fn spawn_log(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_container_is_detected_without_trusting_the_configured_suffix() {
+        assert_eq!(super::container_from_header(b"FLV\x01"), Some("flv"));
+        assert_eq!(
+            super::container_from_header(b"\x00\x00\x00\x18ftypisom"),
+            Some("mp4")
+        );
+        assert_eq!(
+            super::container_from_header(b"\x1a\x45\xdf\xa3webm"),
+            Some("webm")
+        );
+        let mut ts = vec![0; 564];
+        for i in [0, 188, 376] {
+            ts[i] = 0x47;
+        }
+        assert_eq!(super::container_from_header(&ts), Some("ts"));
+        assert_eq!(super::container_from_header(b"error page"), None);
+    }
+
     use super::*;
+    use crate::server::common::util::Recorder;
+    use crate::server::infrastructure::models::StreamerInfo;
+
+    fn download_config(url: &str) -> DownloadConfig {
+        DownloadConfig {
+            url: url.to_string(),
+            segment_time: None,
+            time_range: None,
+            file_size: None,
+            headers: HashMap::new(),
+            recorder: Recorder::new(
+                None,
+                StreamerInfo::new("t", "u", "title", chrono::Utc::now(), ""),
+            ),
+            output_dir: ".".into(),
+            suffix: "flv".to_string(),
+            bytes_written: ByteCounter::new(),
+            preview: Default::default(),
+            index_tap: None,
+        }
+    }
+
+    #[test]
+    fn stream_url_runtime_follows_each_attempts_url() {
+        let first = "https://ws1a.douyucdn.cn/live/a.flv?token=first&expire=300&fcdn=ws&expire=0";
+        let fresh = "https://ws1a.douyucdn.cn/live/a.flv?token=fresh&expire=300&fcdn=ws";
+        let args = |downloader: StreamlinkDownloader| {
+            downloader
+                .build_file_args(&download_config(fresh), "out.flv.part")
+                .unwrap()
+        };
+
+        let following = args(
+            StreamlinkDownloader::new(first.to_string(), Platform::Generic).following_stream_url(),
+        );
+        assert!(following.contains(&streamlink_cli_url(fresh)));
+        assert!(!following.iter().any(|arg| arg.contains("token=first")));
+
+        let pinned = args(StreamlinkDownloader::new(
+            first.to_string(),
+            Platform::Generic,
+        ));
+        assert!(pinned.contains(&streamlink_cli_url(first)));
+    }
 
     #[test]
     fn progressive_flv_gets_httpstream_prefix() {
         let url = "https://cdn.example/live/abc.flv?wsSecret=sig&wsTime=1";
-        assert_eq!(
-            streamlink_cli_url(url),
-            format!("httpstream://{url}")
-        );
+        assert_eq!(streamlink_cli_url(url), format!("httpstream://{url}"));
     }
 
     #[test]
@@ -563,9 +726,16 @@ mod tests {
             )
             .expect("args");
         assert!(
-            args.iter().any(|a| a == "httpstream://https://cdn.example/live.flv?sig=1"),
+            args.iter()
+                .any(|a| a == "httpstream://https://cdn.example/live.flv?sig=1"),
             "expected httpstream URL in args: {args:?}"
         );
         assert!(args.iter().any(|a| a == "best"));
+        // 写盘速率靠解析进度行，stderr 不是终端时也要让 streamlink 打出来
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--progress" && w[1] == "force"),
+            "expected --progress force in args: {args:?}"
+        );
     }
 }

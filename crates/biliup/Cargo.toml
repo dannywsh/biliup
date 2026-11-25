@@ -20,6 +20,7 @@ base64 = "0.22"
 md-5 = "0.10.6"
 rand = { workspace = true }
 url = { workspace = true }
+quick-xml = { workspace = true }
 thiserror = { workspace = true }
 
 cookie = "0.18.1"
@@ -47,6 +48,8 @@ libsm = "0.6.0"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }  # 添加特性（特性是累加的）  }
 tempfile = "3.14"
 http = "1"
+axum = "0.8"
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 cli = ["clap"]

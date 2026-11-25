@@ -198,6 +198,8 @@ reply      发表或回复评论（默认 dry-run）
 top-reply  置顶或取消置顶（默认 dry-run）
 goods      搜索商品、加入选品车、挂载视频或申请测评团
 season     管理新版合集（包含标题编辑）
+user       管理 Web 界面登录用户（list / reset-password）
+node       加入或退出 Fleet 多机录制控制面（join / leave / status）
 list       列出已投稿视频
 download   下载视频
 dump-flv   输出 FLV 元数据
@@ -273,7 +275,8 @@ user_cookie = "cookies.json"
 | --- | --- |
 | `crates/biliup` | 核心库：登录、上传、评论、商品挂载、直播解析 |
 | `crates/biliup-cli` | `biliup` 命令行与 Web API |
-| `crates/danmaku` | 弹幕 |
+| `crates/danmaku` | 弹幕录制与协议解析 |
+| `crates/danmaku-factory` | 纯 Rust 弹幕 XML 转 ASS 排版引擎 |
 | `crates/stream-gears` | Python 绑定 |
 | `app/`、`public/` | Next.js Web UI；`npm run build` 产物输出到 `out/` 并由后端内嵌 |
 | `biliup/` | 精简 Python 包：`python3 -m biliup` 入口 |

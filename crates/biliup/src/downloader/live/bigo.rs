@@ -91,6 +91,7 @@ impl BigoLive {
                 title: data.room_topic.unwrap_or(room_id),
                 date: Utc::now(),
                 live_cover_url: String::new(),
+                avatar_url: None,
                 suffix: media_ext_from_url(&raw_stream_url).unwrap_or_else(|| "m3u8".to_string()),
                 raw_stream_url,
                 platform: "bigo".to_string(),
@@ -105,8 +106,7 @@ impl BigoLive {
     fn room_id(&self) -> LiveResult<String> {
         self.url
             .split('/')
-            .filter(|part| !part.is_empty())
-            .next_back()
+            .rfind(|part| !part.is_empty())
             .and_then(|part| part.split(['?', '#']).next())
             .filter(|part| !part.is_empty())
             .map(str::to_string)
