@@ -70,9 +70,10 @@ impl From<reqwest_middleware::Error> for Kind {
 #[cfg(test)]
 mod tests {
     use super::Kind;
+    use crate::ReqwestClientBuilderExt;
 
     fn request_error_with_secret_url() -> reqwest::Error {
-        reqwest::Client::new()
+        reqwest::Client::tls_client()
             .get("://invalid")
             .build()
             .unwrap_err()

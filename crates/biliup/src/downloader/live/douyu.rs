@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::ReqwestClientBuilderExt;
 use super::{
     DanmakuSource, DownloaderHint, LiveError, LivePlugin, LiveRequest, LiveResult, LiveStatus,
     LiveStream, media_ext_from_url,
@@ -822,7 +824,7 @@ mod tests {
         real_room_id_cache: &'a RwLock<HashMap<String, String>>,
     ) -> DouyuLive<'a> {
         DouyuLive {
-            client: Client::new(),
+            client: Client::tls_client(),
             url: url.to_string(),
             name: "test".to_string(),
             douyu_cdn: DOUYU_HS_CDN.to_string(),

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use biliup::ReqwestClientBuilderExt;
 use crate::server::core::downloader::DownloadConfig;
 use crate::server::common::util::redact_process_debug;
 use crate::server::errors::{AppError, AppResult};
@@ -611,7 +613,7 @@ mod tests {
             .unwrap_or_else(|_| "https://live.douyin.com/451984634216".to_string());
         let status = Douyin::new()
             .check_stream(LiveRequest {
-                client: reqwest::Client::new(),
+                client: reqwest::Client::tls_client(),
                 url: test_url.clone(),
                 name: "sync-real-test".to_string(),
                 options: LiveOptions::default(),

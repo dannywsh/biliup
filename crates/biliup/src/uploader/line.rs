@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::ReqwestClientBuilderExt;
 use crate::error::Result;
 use crate::uploader::{Uploader, VideoFile, VideoStream};
 use futures::{Stream, TryStreamExt};
@@ -577,7 +579,7 @@ mod tests {
     /// 单条线路 send 失败不应中断测速，全部失败时返回统一错误而不是首条线路的网络错误。
     #[tokio::test]
     async fn select_line_skips_failed_lines_and_reports_all_failed() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::tls_client();
         let result = Probe::select_line(
             &client,
             &serde_json::json!({"get": {}}),
@@ -594,7 +596,7 @@ mod tests {
     /// 无候选线路时同样返回错误，而不是把未测速的默认线路当作结果。
     #[tokio::test]
     async fn select_line_rejects_empty_lines() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::tls_client();
         let result = Probe::select_line(
             &client,
             &serde_json::json!({"get": {}}),
@@ -664,7 +666,7 @@ mod tests {
     /// 卡死的线路必须在单条超时内被跳过，最终仍选出可用线路，而不是无限挂起。
     #[tokio::test]
     async fn select_line_skips_hanging_line_within_timeout_and_picks_healthy_one() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::tls_client();
         let (hanging, hang_server) = hanging_line("hang").await;
         let (healthy, ok_server) = healthy_line("ok").await;
         let per_line_timeout = Duration::from_millis(500);
@@ -693,7 +695,7 @@ mod tests {
     /// 全部线路都卡死时要在有限时间内报错，交给调用方回退默认线路。
     #[tokio::test]
     async fn select_line_fails_in_bounded_time_when_every_line_hangs() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::tls_client();
         let (first, server_a) = hanging_line("a").await;
         let (second, server_b) = hanging_line("b").await;
         let per_line_timeout = Duration::from_millis(300);
@@ -751,7 +753,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires network access to member.bilibili.com"]
     async fn probe_selects_line_over_network() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::tls_client();
         let line = Probe::probe(&client).await.expect("测速应选出可用线路");
         assert_ne!(line.cost, u128::MAX);
         println!("selected line: {} cost={}ms", line.query, line.cost);

@@ -109,7 +109,7 @@ pub struct Bilibili {
 impl Bilibili {
     /// Create a new Bilibili protocol handler.
     pub fn new() -> Self {
-        let client = reqwest::Client::new();
+        let client = crate::client::http_client();
         let wbi_signer = WbiSigner::new(client.clone());
         Self { client, wbi_signer }
     }

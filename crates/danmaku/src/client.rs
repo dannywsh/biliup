@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use rustls_platform_verifier::BuilderVerifierExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -644,13 +643,71 @@ async fn read_tcp_frame(reader: &mut tokio::net::tcp::OwnedReadHalf) -> Result<V
     Ok(frame)
 }
 
+fn collect_native_root_ders() -> Vec<rustls::pki_types::CertificateDer<'static>> {
+    let native = rustls_native_certs::load_native_certs();
+    if !native.certs.is_empty() {
+        return native.certs;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let fallback = std::path::Path::new("/etc/ssl/cert.pem");
+        if fallback.is_file() {
+            return rustls_native_certs::load_certs_from_paths(Some(fallback), None).certs;
+        }
+    }
+    Vec::new()
+}
+
+pub(crate) fn trusted_reqwest_root_certs() -> &'static [reqwest::Certificate] {
+    static ROOTS: std::sync::OnceLock<Vec<reqwest::Certificate>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let mut unique_ders = std::collections::BTreeSet::new();
+        for der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+            unique_ders.insert(der.as_ref().to_vec());
+        }
+        for der in collect_native_root_ders() {
+            unique_ders.insert(der.as_ref().to_vec());
+        }
+        let mut certs = Vec::with_capacity(unique_ders.len());
+        for der in unique_ders {
+            if let Ok(cert) = reqwest::Certificate::from_der(&der) {
+                certs.push(cert);
+            }
+        }
+        certs
+    })
+}
+
+pub(crate) fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .tls_certs_only(trusted_reqwest_root_certs().iter().cloned())
+        .build()
+        .expect("failed to build danmaku reqwest client with bundled and native TLS roots")
+}
+
+fn trusted_rustls_root_store() -> Arc<rustls::RootCertStore> {
+    static STORE: std::sync::OnceLock<Arc<rustls::RootCertStore>> = std::sync::OnceLock::new();
+    STORE
+        .get_or_init(|| {
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let (added, ignored) =
+                root_store.add_parsable_certificates(collect_native_root_ders());
+            debug!(
+                "Loaded {} native CA certs ({} ignored) on top of bundled Mozilla roots",
+                added, ignored
+            );
+            Arc::new(root_store)
+        })
+        .clone()
+}
+
 fn platform_tls_connector() -> Result<Connector> {
     let provider = rustls::crypto::aws_lc_rs::default_provider();
     let config = rustls::ClientConfig::builder_with_provider(provider.into())
         .with_safe_default_protocol_versions()
         .map_err(|e| DanmakuError::Decode(e.to_string()))?
-        .with_platform_verifier()
-        .map_err(|e| DanmakuError::Decode(e.to_string()))?
+        .with_root_certificates(trusted_rustls_root_store())
         .with_no_client_auth();
     Ok(Connector::Rustls(Arc::new(config)))
 }

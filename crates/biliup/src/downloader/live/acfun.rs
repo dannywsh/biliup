@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::ReqwestClientBuilderExt;
 use super::{
     DownloaderHint, LiveError, LivePlugin, LiveRequest, LiveResult, LiveStatus, LiveStream,
     media_ext_from_url,
@@ -250,7 +252,7 @@ mod tests {
     #[test]
     fn parses_room_id() {
         let live = AcfunLive {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::tls_client(),
             url: "https://live.acfun.cn/live/12345".to_string(),
             name: String::new(),
         };

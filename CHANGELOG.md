@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.0.19
+- 更新时间：2026.11.25
+- 跨平台 TLS 根证书加载与沙箱兼容：将 `biliup`、`biliup-cli` 与 `danmaku` 的 HTTP/WebSocket TLS 客户端统一收敛至 `rustls-webpki` 纯内存证书校验，合并内置 Mozilla 根证书（`webpki-root-certs` / `webpki-roots`）与系统/环境变量原生根证书（`rustls-native-certs`，含 DER 去重及 macOS 沙箱 `/etc/ssl/cert.pem` 回退），解决 macOS 沙箱环境下无法访问 `com.apple.trustd.agent` 报 `OSStatus -26276` 及精简 Linux 容器缺少系统证书目录的问题。
+- 依赖更新与安全加固：基于 OSV 漏洞扫描升级 `rustls`、`rustls-webpki`、`webpki-root-certs`、`webpki-roots`、`rsa 0.10.0`、`quick-xml 0.42`、`pyo3 0.30`、`pythonize 0.30`、`error-stack 0.8`、`quinn-proto`、`tokio`、`h2`、`cookie`、`url` 等依赖，并收敛 `image` 默认特性以移除未使用的 `ravif`/`rav1e`/`paste` 传递依赖。
+
 ## 0.0.18
 - 更新时间：2026.10.08
 - 修复多商品挂载：按官方前端的评论蓝链协议使用 `fromType=3`、`cmcPlaceType=12`，一次请求生成一条多商品评论。

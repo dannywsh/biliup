@@ -8,7 +8,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.0.18"
+version = "0.0.19"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -16,7 +16,6 @@ serde_json = "1.0"
 serde_yaml = "0.9.34"
 toml = "0.8"
 bytes = "1.10.1"
-# FIXME: 等 rsa 0.10.0 发布后再更新
 rand = "0.8"
 serde_urlencoded = "0.7"
 
@@ -29,7 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["local-time"] }
 tracing-appender = "0.2"
 
 thiserror = "2"
-error-stack = "0.6.0"
+error-stack = "0.8.0"
 
 time = { version = "0.3", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -37,6 +36,9 @@ chrono = { version = "0.4", features = ["serde"] }
 bon = "3.7.2"
 regex = "1.11.1"
 reqwest = { version = "0.13.4", features = ["cookies", "form", "query"] }
+rustls-native-certs = "0.8"
+webpki-root-certs = "1"
+webpki-roots = "1"
 url = "2.5"
 
 

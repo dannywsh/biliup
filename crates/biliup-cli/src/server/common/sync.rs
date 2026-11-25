@@ -1,3 +1,5 @@
+#[cfg(test)]
+use biliup::ReqwestClientBuilderExt;
 use crate::server::common::upload::{
     UploadContext, aid_from_submit, build_studio, complete_byte_stream, edit_to_bilibili,
     execute_postprocessor, initialize_upload_context, submit_to_bilibili, upload_byte_stream_parts,
@@ -658,7 +660,7 @@ mod tests {
 
     fn dummy_bili() -> BiliBili {
         BiliBili {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::tls_client(),
             login_info: serde_json::from_value(serde_json::json!({
                 "cookie_info": {},
                 "sso": [],

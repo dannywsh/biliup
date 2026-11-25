@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::ReqwestClientBuilderExt;
 use super::{
     DanmakuSource, DownloaderHint, LiveError, LivePlugin, LiveRequest, LiveResult, LiveStatus,
     LiveStream, media_ext_from_url,
@@ -1003,7 +1005,7 @@ mod tests {
         let test_url = std::env::var("DOUYIN_TEST_URL")
             .unwrap_or_else(|_| "https://www.douyin.com/live/68621666216".to_string());
         let request = LiveRequest {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::tls_client(),
             url: test_url.clone(),
             name: "sync-test".to_string(),
             options: LiveOptions::default(),
@@ -1018,7 +1020,7 @@ mod tests {
                 assert!(!stream.raw_stream_url.is_empty(), "开播时应返回直链");
                 assert_eq!(stream.platform, "douyin");
                 assert_eq!(stream.suffix, "flv");
-                let client = reqwest::Client::new();
+                let client = reqwest::Client::tls_client();
                 let mut req = client.get(&stream.raw_stream_url);
                 for (key, value) in &stream.stream_headers {
                     if let (Ok(name), Ok(val)) = (

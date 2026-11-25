@@ -14,7 +14,7 @@ use cookie::Cookie;
 use md5::{Digest, Md5};
 use reqwest::header::{COOKIE, ORIGIN, REFERER, USER_AGENT};
 
-use rsa::{Pkcs1v15Encrypt, RsaPublicKey, pkcs8::DecodePublicKey};
+use rsa::{PublicKey, pkcs8::DecodePublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -550,11 +550,10 @@ impl Credential {
 
     pub async fn login_by_password(&self, username: &str, password: &str) -> Result<LoginInfo> {
         // The type of `payload` is `serde_json::Value`
-        let mut rng = rand::thread_rng();
         let (key_hash, pub_key) = self.get_key().await?;
-        let pub_key = RsaPublicKey::from_public_key_pem(&pub_key).unwrap();
+        let pub_key = PublicKey::from_public_key_pem(&pub_key).unwrap();
         let enc_data = pub_key
-            .encrypt(&mut rng, Pkcs1v15Encrypt, (key_hash + password).as_bytes())
+            .pkcs1v15_encrypt((key_hash + password).as_bytes())
             .expect("failed to encrypt");
         let encrypt_password = general_purpose::STANDARD_NO_PAD.encode(enc_data);
         let mut payload = json!({

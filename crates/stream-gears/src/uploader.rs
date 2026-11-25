@@ -10,7 +10,7 @@ use error_stack::ResultExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UploadLine {
     Bldsa,

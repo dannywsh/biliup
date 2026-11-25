@@ -55,7 +55,7 @@ impl Huya {
     /// Create a new Huya protocol handler.
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::client::http_client(),
         }
     }
 

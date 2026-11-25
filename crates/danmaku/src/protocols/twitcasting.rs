@@ -54,7 +54,7 @@ impl Twitcasting {
     /// Create a new Twitcasting protocol handler.
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::client::http_client(),
         }
     }
 

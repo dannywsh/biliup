@@ -1,3 +1,4 @@
+use biliup::ReqwestClientBuilderExt;
 use crate::server::common::construct_headers;
 use crate::server::errors::{AppError, AppResult};
 use biliup::client::StatelessClient;
@@ -27,7 +28,7 @@ pub async fn download(
     split_time: Option<humantime::Duration>,
 ) -> AppResult<()> {
     let segmentable = Segmentable::new(split_time.map(|t| t.into()), split_size);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::tls_client();
     let request = LiveRequest {
         client,
         url: url.to_string(),

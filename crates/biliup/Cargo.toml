@@ -15,10 +15,9 @@ serde_urlencoded = { workspace = true }
 reqwest_cookie_store = "0.10.0"
 tokio = { workspace = true }
 tracing = { workspace = true }
-rsa = "0.9.8"
+rsa = { version = "0.10.0", features = ["pkcs1v15"] }
 base64 = "0.22"
 md-5 = "0.10.6"
-# FIXME: 等 rsa 0.10.0 发布后再更新
 rand = { workspace = true }
 url = { workspace = true }
 thiserror = { workspace = true }
@@ -39,6 +38,8 @@ byteorder = "1.5.0"
 regex = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true, features = ["charset", "http2", "brotli", "gzip", "json", "stream"] }
+rustls-native-certs = { workspace = true }
+webpki-root-certs = { workspace = true }
 urlencoding = "2.1"
 libsm = "0.6.0"
 

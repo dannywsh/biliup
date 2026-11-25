@@ -25,7 +25,7 @@ pub struct YouTube {
 impl YouTube {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::client::http_client(),
         }
     }
 

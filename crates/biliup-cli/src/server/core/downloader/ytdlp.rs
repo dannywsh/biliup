@@ -1,3 +1,4 @@
+use biliup::ReqwestClientBuilderExt;
 use crate::server::core::downloader::{
     DownloadConfig as RuntimeDownloadConfig, DownloadStatus, SegmentEvent, SegmentInfo,
 };
@@ -481,7 +482,7 @@ impl YouTubeDownloader {
         let handle = tokio::spawn(async move {
             fs::create_dir_all(&working_dir).await.ok();
 
-            let client = reqwest::Client::builder()
+            let client = reqwest::Client::tls_builder()
                 .timeout(Duration::from_secs(15))
                 .build()
                 .change_context(AppError::Unknown)?;

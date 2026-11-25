@@ -65,7 +65,7 @@ pub async fn download_with_hook(
 }
 
 #[derive(Debug, Clone)]
-#[pyclass(set_all)]
+#[pyclass(set_all, from_py_object)]
 pub struct PySegment {
     // #[pyo3(attribute("time"))]
     time: Option<u64>,
